@@ -99,36 +99,38 @@ aiosqlite.register_adapter(hikari.Snowflake, adapt_snowflake)
 
 async def init_db() -> None:
     async with plugin.model.db.cursor() as cur:
+
         await cur.execute("""
             DROP TABLE IF EXISTS levels
         """)
-        await cur.execute("""
+
+        await cur.execute(f"""
             CREATE TABLE levels (
                 id INTEGER PRIMARY KEY,
-                alltimexp INTEGER,
-                monthlyxp INTEGER,
-                weeklyxp INTEGER,
-                dailyxp INTEGER
+                {' INTEGER,'.join(xp_types)} INTEGER
             );
         """)
+
         await plugin.model.db.commit()
         print(await cur.fetchall())
 
 async def add_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
+
     assert xp_type in xp_types
     async with plugin.model.db.cursor() as cur:
+
         await cur.execute(f"""
-            IF NOT EXISTS (SELECT 1 FROM levels WHERE id = ?)
-            BEGIN
-                INSERT INTO levels
-                VALUES (?, {', '.join(['0'] * len(xp_types))})
-            END
-        """, (int(id),))
+            INSERT INTO levels(id, {', '.join(xp_types)}) 
+            SELECT ?, {', '.join(['0'] * len(xp_types))}
+            WHERE NOT EXISTS(SELECT 1 FROM levels WHERE id = ?)
+        """, (id, id))
+
         await cur.execute(f"""
             UPDATE levels
             SET {xp_type} = {xp_type} + ?
             WHERE id = ?
-        """, (xp, int(id)))
+        """, (xp, id))
+
         await plugin.model.db.commit()
         data = await cur.execute("""
             SELECT * FROM levels
