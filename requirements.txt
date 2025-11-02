@@ -3,3 +3,4 @@ hikari-crescent
 python-dotenv
 uvloop
 hikari-miru
+aiosqlite

@@ -5,14 +5,20 @@ import os
 import json
 import asyncio
 import miru
+import aiosqlite
 from bot.pprintify import pprintify
 from collections import Counter
 
-from bot.model import MyModel
+from bot.model import Model
 
-plugin = crescent.Plugin[hikari.GatewayBot, MyModel]()
+plugin = crescent.Plugin[hikari.GatewayBot, Model]()
 
-os.chdir(f"{os.getcwd()}/bot/plugins")
+xp_types = [
+    "alltimexp",
+    "monthlyxp",
+    "weeklyxp",
+    "dailyxp"
+]
 
 # view with crescent context passed for additional utility
 class ContextView(miru.View):
@@ -86,13 +92,125 @@ class TeaView(ContextView):
         # ...thus, moderate scuff
         await self.crescent_ctx.respond("Nobody joined? How drab...")
 
+def adapt_snowflake(sf: hikari.Snowflake) -> int:
+    return int(sf)
+
+aiosqlite.register_adapter(hikari.Snowflake, adapt_snowflake)
+
+async def init_db() -> None:
+    async with plugin.model.db.cursor() as cur:
+        await cur.execute("""
+            DROP TABLE IF EXISTS levels
+        """)
+        await cur.execute("""
+            CREATE TABLE levels (
+                id INTEGER PRIMARY KEY,
+                alltimexp INTEGER,
+                monthlyxp INTEGER,
+                weeklyxp INTEGER,
+                dailyxp INTEGER
+            );
+        """)
+        await plugin.model.db.commit()
+        print(await cur.fetchall())
+
+async def add_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
+    assert xp_type in xp_types
+    async with plugin.model.db.cursor() as cur:
+        await cur.execute(f"""
+            IF NOT EXISTS (SELECT 1 FROM levels WHERE id = ?)
+            BEGIN
+                INSERT INTO levels
+                VALUES (?, {', '.join(['0'] * len(xp_types))})
+            END
+        """, (int(id),))
+        await cur.execute(f"""
+            UPDATE levels
+            SET {xp_type} = {xp_type} + ?
+            WHERE id = ?
+        """, (xp, int(id)))
+        await plugin.model.db.commit()
+        data = await cur.execute("""
+            SELECT * FROM levels
+        """)
+        print(await data.fetchall())
+
+# on_msg
 @plugin.include
-@crescent.command
+@crescent.event
+async def on_message_create(event: hikari.MessageCreateEvent) -> None:
+    user = event.message.author
+    if user.is_bot:
+        return
+
+    xp = random.randint(2, 42)
+
+    with open("temp_xp.json", "r+") as f:
+        data = json.load(f)
+    if not data[str(event.message.guild_id)].get(str(user.id)):
+        data[str(event.message.guild_id)][str(user.id)] = 0
+    data[str(event.message.guild_id)][str(user.id)] += xp
+    with open("temp_xp.json", "w") as f:
+        json.dump(data, f)
+
+    await add_xp_db(user.id, xp, "alltimexp")
+
+    await event.message.respond("This Pro-flop is Pissing me off...")
+
+# ping
+@plugin.include
+@crescent.command(
+    name="ping",
+    description="ping pong"
+)
 async def ping(ctx: crescent.Context) -> None:
     view = TeaView(ctx, timeout=3.0)
-    await ctx.respond("Pong!", components=view)
-    ctx.client.model.miru.start_view(view)
+    await ctx.respond("Pong!", components=view) 
+    ctx.client.model.miru_client.start_view(view)
 
+@plugin.include
+@crescent.command(
+    name="xp",
+    description="check xp of user"
+)
+async def check_xp(ctx: crescent.Context, user: hikari.User | None=None) -> None:
+    user = user or ctx.user
+    with open("temp_xp.json", "r") as f:
+        xp = json.load(f)[str(ctx.guild_id)].get(str(user.id))
+    if not xp:
+        await ctx.respond(f"{user.username}, you don't have any xp yet.")
+    else:
+        await ctx.respond(f"{user.username}, you have {xp} xp.")
+
+@plugin.include
+@crescent.command(
+    name="setxp",
+    description="set xp of user"
+)
+async def set_xp(ctx: crescent.Context, user: hikari.User, xp: int) -> None:
+    with open("temp_xp.json", "r") as f:
+        data = json.load(f)[str(ctx.guild_id)]
+    data[str(user.id)] = xp
+    with open("temp_xp.json", "w") as f:
+        json.dump(data, f)
+    await ctx.respond(f"Set xp of {user.username} to {xp}.")
+    
+
+
+# (admin) reset guild xp (ADD CONFIRMATION!!!!!11!!1!)
+@plugin.include
+@crescent.command(
+    name="init",
+    description="removes all level data & creates a new level storage",
+    default_member_permissions=hikari.Permissions.ADMINISTRATOR
+)
+async def init_guild_xp(ctx: crescent.Context) -> None:
+    with open("temp_xp.json", "w") as f:
+        json.dump({str(ctx.guild_id): {}}, f)
+    await init_db()
+    await ctx.respond("Blank level storage created.")
+
+# rand word (teabot)
 @plugin.include
 @crescent.command
 async def word(ctx: crescent.Context) -> None:
@@ -100,6 +218,7 @@ async def word(ctx: crescent.Context) -> None:
         randWord = random.choice(wordsFile.readlines())
     await ctx.respond(randWord)
 
+# words (teabot)
 @plugin.include
 @crescent.command
 async def three(ctx: crescent.Context) -> None:
@@ -107,10 +226,10 @@ async def three(ctx: crescent.Context) -> None:
         randThree = ", ".join(str(i) for i in random.choice(Counter(json.load(threesFile)).most_common(1400)))
     await ctx.respond(randThree)
 
+# hook (teabot)
 async def tea_hook(ctx: crescent.Context) -> None:
     star_msg = await ctx.respond("Star        walker")
     await asyncio.sleep(5)
-
 
 @plugin.include
 @crescent.hook(tea_hook)
