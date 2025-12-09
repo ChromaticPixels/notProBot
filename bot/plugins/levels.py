@@ -37,6 +37,7 @@ class ContextView(miru.View):
 # TeaView is a vestigal class from another bot
 # i keep it around in case something inside is useful later
 # test_hook is from there too
+# ContextView also is but it seems more likely usable here eventually
 
 # view for tea games (teabot)
 class TeaView(ContextView):
@@ -106,6 +107,7 @@ class TeaView(ContextView):
 
 
 async def init_db() -> None:
+    assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
         await cur.execute("""
             DROP TABLE IF EXISTS levels
@@ -121,16 +123,20 @@ async def init_db() -> None:
         print(await cur.fetchall())
 
 
-async def get_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
+async def get_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> int | None:
     assert xp_type in xp_types
+    assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
-        return await cur.execute(f"""
-            SELECT {xp_type} FROM levels WHERE id = ?)
-        """, (id,)).fetchone()
+        data = await (await cur.execute(f"""
+            SELECT {xp_type} FROM levels
+            WHERE id = ?
+        """, (id,))).fetchone()
+    return data[0] if data else None
 
 
 async def set_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
     assert xp_type in xp_types
+    assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
         await cur.execute(f"""
             INSERT INTO levels(id, {', '.join(xp_types)}) 
@@ -152,6 +158,7 @@ async def set_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> 
 
 async def add_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
     assert xp_type in xp_types
+    assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
         await cur.execute(f"""
             INSERT INTO levels(id, {', '.join(xp_types)}) 
@@ -204,15 +211,16 @@ async def ping(ctx: crescent.Context) -> None:
     name="xp",
     description="check xp of user"
 )
-async def check_xp(ctx: crescent.Context, user: hikari.User | None=None) -> None:
-    user = user or ctx.user
-    xp = await get_xp_db(user.id)
-    print(xp)
+class CheckXPCommand:
+    user = crescent.option(hikari.User, "user to check xp of", default=None)
 
-    if not xp:
-        await ctx.respond(f"{user.username}, you don't have any xp yet.")
-    else:
-        await ctx.respond(f"{user.username}, you have {xp} xp.")
+    async def callback(self, ctx: crescent.Context) -> None:
+        user = self.user or ctx.user
+        xp = await get_xp_db(user.id)
+        if not xp:
+            await ctx.respond(f"{user.username}, you don't have any xp yet.")
+        else:
+            await ctx.respond(f"{user.username}, you have {xp} xp.")
 
 
 @plugin.include
@@ -220,9 +228,13 @@ async def check_xp(ctx: crescent.Context, user: hikari.User | None=None) -> None
     name="setxp",
     description="set xp of user"
 )
-async def set_xp(ctx: crescent.Context, user: hikari.User, xp: int) -> None:
-    await set_xp_db(user.id, xp)
-    await ctx.respond(f"Set xp of {user.username} to {xp}.")
+class SetXPCommand:
+    user = crescent.option(hikari.User, "user to set xp of")
+    xp = crescent.option(int, "xp amount to set")
+
+    async def callback(self, ctx: crescent.Context) -> None:
+        await set_xp_db(self.user.id, self.xp)
+        await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
 
 
 # (admin) reset guild xp (ADD CONFIRMATION!!!!!11!!1!)
