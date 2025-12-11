@@ -18,7 +18,6 @@ plugin = crescent.Plugin[hikari.GatewayBot, Model]()
 # currently all xp types are in one table
 # this will likely change later to one per table
 # this array will then refer to table names not column names
-
 xp_types = [
     "alltimexp",
     "monthlyxp",
@@ -205,7 +204,7 @@ async def ping(ctx: crescent.Context) -> None:
     await ctx.respond("Pong!", components=view) 
     ctx.client.model.miru_client.start_view(view)
 
-
+# check xp
 @plugin.include
 @crescent.command(
     name="xp",
@@ -222,7 +221,7 @@ class CheckXPCommand:
         else:
             await ctx.respond(f"{user.username}, you have {xp} xp.")
 
-
+# set xp
 @plugin.include
 @crescent.command(
     name="setxp",
