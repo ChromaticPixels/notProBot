@@ -1,30 +1,39 @@
 import random
 import os
 import asyncio
-from collections import Counter
 import json
+import typing
+import datetime
+from collections import Counter
 
 import crescent
 import hikari
 import miru
 import aiosqlite
+from crescent.ext import cooldowns
 
 from bot.pprintify import pprintify
 from bot.model import Model
 
-
 plugin = crescent.Plugin[hikari.GatewayBot, Model]()
+
+aiosqlite.register_adapter(hikari.Snowflake, lambda sf: int(sf))
+
+with open("bot/data/temp_settings.json", "r") as f:
+    settings = json.load(f)
+
+# ids get added/removed on message to control xp gain per cooldown
+on_cooldown = set()
 
 # currently all xp types are in one table
 # this will likely change later to one per table
 # this array will then refer to table names not column names
-all_xp_types = [
+all_xp_types = (
     "alltimexp",
     "monthlyxp",
     "weeklyxp",
     "dailyxp"
-]
-aiosqlite.register_adapter(hikari.Snowflake, lambda sf: int(sf))
+)
 
 # view with crescent context passed for additional utility
 class ContextView(miru.View):
@@ -182,10 +191,31 @@ async def remove_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") 
         await set_xp_db(id, max((await get_xp_db(id, xp_type) or 0) - xp, 0), xp_type)
 
 
+async def cooldown_hook(event: hikari.MessageCreateEvent) -> None:
+    user = event.message.author
+    if user.id in on_cooldown:
+        return
+    
+    on_cooldown.add(user.id)
+    await asyncio.sleep(settings["Calculation"]["Cooldown"])
+    on_cooldown.remove(user.id)
+
+
 async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     user = event.message.author
-    xp = random.randint(1, 44)
+    if user.id in on_cooldown:
+        return
+    
+    xp = random.randint(
+        settings["Calculation"]["Minimum XP"],
+        settings["Calculation"]["Maximum XP"]
+    )
     await add_xp_db(user.id, xp)
+
+    # currently for testing
+    # possibly make ephemeral as a prod feature?
+    # would require user settings but would be useful for admins
+    # but i am the only admin who debugs xp gain so meh
     await event.message.respond("This Pro-flop is Pissing me off...")
 
 
@@ -196,15 +226,15 @@ async def handle_is_bot_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
     await ctx.respond("We bots don't earn xp...")
 
 
-# on_msg
 @plugin.include
+@crescent.hook(cooldown_hook, after=True)
 @crescent.event
 async def on_message_create(event: hikari.MessageCreateEvent) -> None:
     if not event.message.author.is_bot:
         await handle_msg_xp_gain(event)
 
 
-# ping
+# this should move out of levels plugin
 @plugin.include
 @crescent.command(
     name="ping",
@@ -216,7 +246,6 @@ async def ping(ctx: crescent.Context) -> None:
     ctx.client.model.miru_client.start_view(view)
 
 
-# check xp
 @plugin.include
 @crescent.command(
     name="rank",
@@ -240,7 +269,7 @@ class CheckXPCommand:
 
 xp_group = crescent.Group(name="xp", description="xp management commands")
 
-# set xp
+
 @plugin.include
 @xp_group.child
 @crescent.command(
@@ -259,7 +288,6 @@ class SetXPCommand:
         await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
 
 
-# add xp
 @plugin.include
 @xp_group.child
 @crescent.command(
@@ -278,7 +306,6 @@ class AddXPCommand:
         await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
 
 
-# remove xp
 @plugin.include
 @xp_group.child
 @crescent.command(
@@ -297,7 +324,6 @@ class RemoveXPCommand:
         await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
 
 
-# reset xp
 @plugin.include
 @xp_group.child
 @crescent.command(

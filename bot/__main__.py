@@ -29,15 +29,6 @@ model = Model(miru_client)
 client = crescent.Client(bot, model)
 client.plugins.load_folder("bot.plugins")
 
-# this is locational:
-# the code above loads ~/bot/plugins as the folder for plugins
-# putting it higher messes with that
-# but frankly, any code that can mess with that shouldn't be here
-# this is here so that it isn't in both the plugin and model, because it runs here first
-# but this is still stupid
-# so TODO find a better way
-os.chdir(f"{os.getcwd()}/bot/data")
-
 bot.subscribe(hikari.StartingEvent, model.on_start)
 bot.subscribe(hikari.StoppedEvent, model.on_stop)
 

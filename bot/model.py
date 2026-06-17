@@ -21,7 +21,7 @@ class Model:
         """
         ...
         print(f"path: {os.getcwd()}")
-        self.db = await aiosqlite.connect("temp_xp.db")
+        self.db = await aiosqlite.connect("bot/data/temp_xp.db")
         print(self.db)
 
     async def on_stop(self, _: hikari.StoppedEvent) -> None:
