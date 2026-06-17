@@ -18,7 +18,7 @@ plugin = crescent.Plugin[hikari.GatewayBot, Model]()
 # currently all xp types are in one table
 # this will likely change later to one per table
 # this array will then refer to table names not column names
-xp_types = [
+all_xp_types = [
     "alltimexp",
     "monthlyxp",
     "weeklyxp",
@@ -105,6 +105,13 @@ class TeaView(ContextView):
         await self.crescent_ctx.respond("Nobody joined? How drab...")
 
 
+async def print_db(cur: aiosqlite.Cursor) -> None:
+    data = await cur.execute("""
+        SELECT * FROM levels
+    """)
+    print(await data.fetchall())
+
+
 async def init_db() -> None:
     assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
@@ -114,16 +121,16 @@ async def init_db() -> None:
         await cur.execute(f"""
             CREATE TABLE levels (
                 id INTEGER PRIMARY KEY,
-                {' INTEGER,'.join(xp_types)} INTEGER
+                {' INTEGER,'.join(all_xp_types)} INTEGER
             );
         """)
 
         await plugin.model.db.commit()
-        print(await cur.fetchall())
+        await print_db(cur)
 
 
 async def get_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> int | None:
-    assert xp_type in xp_types
+    assert xp_type in all_xp_types
     assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
         data = await (await cur.execute(f"""
@@ -134,12 +141,12 @@ async def get_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> int | Non
 
 
 async def set_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
-    assert xp_type in xp_types
+    assert xp_type in all_xp_types
     assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
         await cur.execute(f"""
-            INSERT INTO levels(id, {', '.join(xp_types)}) 
-            SELECT ?, {', '.join(['0'] * len(xp_types))}
+            INSERT INTO levels(id, {', '.join(all_xp_types)}) 
+            SELECT ?, {', '.join(['0'] * len(all_xp_types))}
             WHERE NOT EXISTS(SELECT 1 FROM levels WHERE id = ?)
         """, (id, id))
         await cur.execute(f"""
@@ -149,23 +156,40 @@ async def set_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> 
         """, (xp, id))
 
         await plugin.model.db.commit()
-        data = await cur.execute("""
-            SELECT * FROM levels
-        """)
-        print(await data.fetchall())
+        await print_db(cur)
+
+
+async def reset_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> None:
+    assert xp_type in all_xp_types
+    assert plugin.model.db is not None
+    async with plugin.model.db.cursor() as cur:
+        await cur.execute(f"""
+            DELETE FROM levels
+            WHERE id = ?
+        """, (id,))
+
+        await plugin.model.db.commit()
+        await print_db(cur)
 
 
 async def add_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
-    xp = (await get_xp_db(id, xp_type) or 0) + xp
-    await set_xp_db(id, xp, xp_type)
+    for xp_type in all_xp_types:
+        await set_xp_db(id, (await get_xp_db(id, xp_type) or 0) + xp, xp_type)
 
 
 async def remove_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
-    xp = max((await get_xp_db(id, xp_type) or 0) - xp, 0)
-    await set_xp_db(id, xp, xp_type)
+    for xp_type in all_xp_types:
+        await set_xp_db(id, max((await get_xp_db(id, xp_type) or 0) - xp, 0), xp_type)
 
 
-async def is_bot_respond_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
+async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
+    user = event.message.author
+    xp = random.randint(1, 44)
+    await add_xp_db(user.id, xp)
+    await event.message.respond("This Pro-flop is Pissing me off...")
+
+
+async def handle_is_bot_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
     if id == ctx.application_id:
         await ctx.respond("~~Someday~~ I mean what?")
         return
@@ -176,16 +200,8 @@ async def is_bot_respond_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None
 @plugin.include
 @crescent.event
 async def on_message_create(event: hikari.MessageCreateEvent) -> None:
-    user = event.message.author
-    if user.is_bot:
-        return
-    
-    # the xp amount should be handled in its own function that is then called here
-    xp = random.randint(2, 42)
-    for xp_type in xp_types:
-        await add_xp_db(user.id, xp, xp_type)
-
-    await event.message.respond("This Pro-flop is Pissing me off...")
+    if not event.message.author.is_bot:
+        await handle_msg_xp_gain(event)
 
 
 # ping
@@ -212,7 +228,7 @@ class CheckXPCommand:
     async def callback(self, ctx: crescent.Context) -> None:
         user = self.user or ctx.user
         if user.is_bot:
-            await is_bot_respond_xp(user.id, ctx)
+            await handle_is_bot_xp(user.id, ctx)
             return
 
         xp = await get_xp_db(user.id)
@@ -237,7 +253,7 @@ class SetXPCommand:
 
     async def callback(self, ctx: crescent.Context) -> None:
         if self.user.is_bot:
-            await is_bot_respond_xp(self.user.id, ctx)
+            await handle_is_bot_xp(self.user.id, ctx)
             return
         await set_xp_db(self.user.id, self.xp)
         await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
@@ -256,7 +272,7 @@ class AddXPCommand:
 
     async def callback(self, ctx: crescent.Context) -> None:
         if self.user.is_bot:
-            await is_bot_respond_xp(self.user.id, ctx)
+            await handle_is_bot_xp(self.user.id, ctx)
             return
         await add_xp_db(self.user.id, self.xp)
         await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
@@ -275,7 +291,7 @@ class RemoveXPCommand:
 
     async def callback(self, ctx: crescent.Context) -> None:
         if self.user.is_bot:
-            await is_bot_respond_xp(self.user.id, ctx)
+            await handle_is_bot_xp(self.user.id, ctx)
             return
         await remove_xp_db(self.user.id, self.xp)
         await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
@@ -293,9 +309,9 @@ class ResetXPCommand:
 
     async def callback(self, ctx: crescent.Context) -> None:
         if self.user.is_bot:
-            await is_bot_respond_xp(self.user.id, ctx)
+            await handle_is_bot_xp(self.user.id, ctx)
             return
-        await set_xp_db(self.user.id, 0)
+        await reset_xp_db(self.user.id)
         await ctx.respond(f"Reset xp of {self.user.username}.")
 
 
