@@ -30,4 +30,5 @@ class Model:
         cleanup functions for the model class.
         """
         ...
-        await self.db.close()
+        if self.db is not None:
+            await self.db.close()

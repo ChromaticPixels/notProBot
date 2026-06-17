@@ -156,25 +156,20 @@ async def set_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> 
 
 
 async def add_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
-    assert xp_type in xp_types
-    assert plugin.model.db is not None
-    async with plugin.model.db.cursor() as cur:
-        await cur.execute(f"""
-            INSERT INTO levels(id, {', '.join(xp_types)}) 
-            SELECT ?, {', '.join(['0'] * len(xp_types))}
-            WHERE NOT EXISTS(SELECT 1 FROM levels WHERE id = ?)
-        """, (id, id))
-        await cur.execute(f"""
-            UPDATE levels
-            SET {xp_type} = {xp_type} + ?
-            WHERE id = ?
-        """, (xp, id))
+    xp = (await get_xp_db(id, xp_type) or 0) + xp
+    await set_xp_db(id, xp, xp_type)
 
-        await plugin.model.db.commit()
-        data = await cur.execute("""
-            SELECT * FROM levels
-        """)
-        print(await data.fetchall())
+
+async def remove_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
+    xp = max((await get_xp_db(id, xp_type) or 0) - xp, 0)
+    await set_xp_db(id, xp, xp_type)
+
+
+async def is_bot_respond_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
+    if id == ctx.application_id:
+        await ctx.respond("~~Someday~~ I mean what?")
+        return
+    await ctx.respond("We bots don't earn xp...")
 
 
 # on_msg
@@ -204,27 +199,36 @@ async def ping(ctx: crescent.Context) -> None:
     await ctx.respond("Pong!", components=view) 
     ctx.client.model.miru_client.start_view(view)
 
+
 # check xp
 @plugin.include
 @crescent.command(
-    name="xp",
-    description="check xp of user"
+    name="rank",
+    description="check rank & xp of user"
 )
 class CheckXPCommand:
-    user = crescent.option(hikari.User, "user to check xp of", default=None)
+    user = crescent.option(hikari.User, "user to check rank & xp of", default=None)
 
     async def callback(self, ctx: crescent.Context) -> None:
         user = self.user or ctx.user
+        if user.is_bot:
+            await is_bot_respond_xp(user.id, ctx)
+            return
+
         xp = await get_xp_db(user.id)
         if not xp:
             await ctx.respond(f"{user.username}, you don't have any xp yet.")
         else:
             await ctx.respond(f"{user.username}, you have {xp} xp.")
 
+
+xp_group = crescent.Group(name="xp", description="xp management commands")
+
 # set xp
 @plugin.include
+@xp_group.child
 @crescent.command(
-    name="setxp",
+    name="set",
     description="set xp of user"
 )
 class SetXPCommand:
@@ -232,8 +236,67 @@ class SetXPCommand:
     xp = crescent.option(int, "xp amount to set")
 
     async def callback(self, ctx: crescent.Context) -> None:
+        if self.user.is_bot:
+            await is_bot_respond_xp(self.user.id, ctx)
+            return
         await set_xp_db(self.user.id, self.xp)
         await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
+
+
+# add xp
+@plugin.include
+@xp_group.child
+@crescent.command(
+    name="add",
+    description="add xp to user"
+)
+class AddXPCommand:
+    user = crescent.option(hikari.User, "user to add xp to")
+    xp = crescent.option(int, "xp amount to add")
+
+    async def callback(self, ctx: crescent.Context) -> None:
+        if self.user.is_bot:
+            await is_bot_respond_xp(self.user.id, ctx)
+            return
+        await add_xp_db(self.user.id, self.xp)
+        await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
+
+
+# remove xp
+@plugin.include
+@xp_group.child
+@crescent.command(
+    name="remove",
+    description="remove xp from user"
+)
+class RemoveXPCommand:
+    user = crescent.option(hikari.User, "user to remove xp from")
+    xp = crescent.option(int, "xp amount to remove")
+
+    async def callback(self, ctx: crescent.Context) -> None:
+        if self.user.is_bot:
+            await is_bot_respond_xp(self.user.id, ctx)
+            return
+        await remove_xp_db(self.user.id, self.xp)
+        await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
+
+
+# reset xp
+@plugin.include
+@xp_group.child
+@crescent.command(
+    name="reset",
+    description="reset xp of user"
+)
+class ResetXPCommand:
+    user = crescent.option(hikari.User, "user to reset xp of")
+
+    async def callback(self, ctx: crescent.Context) -> None:
+        if self.user.is_bot:
+            await is_bot_respond_xp(self.user.id, ctx)
+            return
+        await set_xp_db(self.user.id, 0)
+        await ctx.respond(f"Reset xp of {self.user.username}.")
 
 
 # (admin) reset guild xp (ADD CONFIRMATION!!!!!11!!1!)
