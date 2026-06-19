@@ -2,6 +2,7 @@ import random
 import os
 import asyncio
 import json
+import math
 import typing
 import datetime
 from collections import Counter
@@ -203,7 +204,7 @@ async def remove_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") 
         await set_xp_db(id, max((await get_xp_db(id, xp_type) or 0) - xp, 0), xp_type)
 
 
-async def cooldown_hook(event: hikari.MessageCreateEvent) -> None:
+async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
     user = event.message.author
     if user.id in ids_on_cooldoWn:
         return
@@ -237,9 +238,33 @@ async def handle_is_bot_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
         return
     await ctx.respond("We bots don't earn xp...")
 
+async def get_next_lvl_xp(level: int) -> int:
+    # default is `max(floor(208 / 3 * {level} - 104 / 3) + {xp}, 1)`
+    # not going to support a lack of {xp}
+    # so just `max(floor(208 / 3 * {level} - 104 / 3), 1)` as default
+    # and non-default later
+    return max(math.floor(208 / 3 * level - 104 / 3), 1)
+
+async def get_lvl(xp: int) -> int:
+    level = 0
+    sum = await get_next_lvl_xp(0)
+    while sum <= xp:
+        level += 1
+        sum += await get_next_lvl_xp(level)
+    return level
+    
+    '''
+    level = 0
+    next = await next_level_xp(level)
+    while xp >= next:
+        xp -= next
+        level += 1
+        next = await next_level_xp(level)
+    return level
+    '''
 
 @plugin.include
-@crescent.hook(cooldown_hook, after=True)
+@crescent.hook(manage_cooldown_hook, after=True)
 @crescent.event
 async def on_message_create(event: hikari.MessageCreateEvent) -> None:
     if not event.message.author.is_bot:
@@ -264,7 +289,8 @@ class CheckXPCommand:
         if not xp:
             await ctx.respond(f"{user.username}, you don't have any xp yet.")
         else:
-            await ctx.respond(f"{user.username}, you have {xp} xp.")
+            level = await get_lvl(xp)
+            await ctx.respond(f"{user.username}, you have {xp} xp and are level {level}.")
 
 
 xp_group = crescent.Group(name="xp", description="xp management commands")
