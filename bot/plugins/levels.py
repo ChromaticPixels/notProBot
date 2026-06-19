@@ -6,12 +6,15 @@ import math
 import typing
 import datetime
 from collections import Counter
+from collections.abc import Iterable, Callable
 
 import crescent
 import hikari
 import miru
 import aiosqlite
 from crescent.ext import cooldowns
+from miru.ext import menu
+from sqlite3 import Row
 
 from bot.pprintify import pprintify
 from bot.model import Model
@@ -26,15 +29,24 @@ with open("bot/data/temp_settings.json", "r") as f:
 # ids get added/removed on message to control xp gain per cooldown
 ids_on_cooldoWn = set()
 
-# currently all xp types are in one table
+# currently all xp times are in one table
 # this will likely change later to one per table
 # this array will then refer to table names not column names
-all_xp_types = (
+all_xp_times = (
     "alltimexp",
     "monthlyxp",
     "weeklyxp",
     "dailyxp"
 )
+
+all_xp_times_pretty = (
+    "All Time",
+    "Monthly",
+    "Weekly",
+    "Daily"
+)
+
+ceildiv: Callable[[int, int], int] = lambda a, b: -(a // -b)
 
 # view with crescent context passed for additional utility
 class ContextView(miru.View):
@@ -127,6 +139,51 @@ class TeaView(ContextView):
         ctx.client.model.miru_client.start_view(view)
     '''
 
+class PreviousButton(menu.ScreenButton):
+    def __init__(self) -> None:
+        super().__init__(label="Previous", style=hikari.ButtonStyle.SECONDARY)
+
+    async def callback(self, ctx: miru.ViewContext) -> None:
+        await self.menu.pop()
+
+class NextLeaderboardButton(menu.ScreenButton):
+    def __init__(self, page=1, xp_time: str="alltimexp") -> None:
+        super().__init__(label="Next", style=hikari.ButtonStyle.SECONDARY)
+        self.page = page
+        self.xp_time = xp_time
+
+    async def callback(self, ctx: miru.ViewContext) -> None:
+        await self.menu.push(LeaderboardScreen(self.menu, self.page + 1, self.xp_time))
+
+class LeaderboardScreen(menu.Screen):
+    def __init__(self, menu: menu.Menu, page=1, xp_time: str="alltimexp") -> None:
+        super().__init__(menu)
+        self.page = page
+        self.xp_time = xp_time
+
+    async def build_content(self) -> menu.ScreenContent:
+        print(self.xp_time)
+        info = ""
+        for i, (id, xp) in enumerate(await get_xp_db_bulk(self.page, self.xp_time)):
+            user = await plugin.model.bot.rest.fetch_user(id)
+            info += f"{i + 1}. {user.mention} · Level {await get_lvl(xp)} · {xp} XP\n"
+
+        content = hikari.Embed(
+            title=f"Leaderboard{': '
+                + all_xp_times_pretty[all_xp_times.index(self.xp_time)]
+            if self.xp_time != 'alltimexp' else ''}",
+            description=info,
+            color=hikari.Color(0x000000)
+        )
+        content.set_footer(f"Page {self.page}/{ceildiv(await get_size_xp_db(self.xp_time), 10)}")
+        
+        if self.page > 1:
+            self.menu.add_item(PreviousButton())
+        if self.page < ceildiv(await get_size_xp_db(self.xp_time), 10):
+            self.menu.add_item(NextLeaderboardButton(page=self.page, xp_time=self.xp_time))
+        
+        return menu.ScreenContent(embed=content,)
+
 
 async def print_db(cur: aiosqlite.Cursor) -> None:
     data = await cur.execute("""
@@ -144,37 +201,59 @@ async def init_db() -> None:
         await cur.execute(f"""
             CREATE TABLE levels (
                 id INTEGER PRIMARY KEY,
-                {' INTEGER,'.join(all_xp_types)} INTEGER
+                {' INTEGER,'.join(all_xp_times)} INTEGER
             );
         """)
 
         await plugin.model.db.commit()
         await print_db(cur)
 
-
-async def get_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> int:
-    assert xp_type in all_xp_types
+async def get_size_xp_db(xp_time: str="alltimexp") -> int:
+    assert xp_time in all_xp_times
     assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
         data = await (await cur.execute(f"""
-            SELECT {xp_type} FROM levels
+            SELECT COUNT(*) FROM levels
+            WHERE {xp_time} > 0
+        """)).fetchone()
+    return data[0] if data else 0
+
+
+async def get_xp_db(id: hikari.Snowflake, xp_time: str="alltimexp") -> int:
+    assert xp_time in all_xp_times
+    assert plugin.model.db is not None
+    async with plugin.model.db.cursor() as cur:
+        data = await (await cur.execute(f"""
+            SELECT {xp_time} FROM levels
             WHERE id = ?
         """, (id,))).fetchone()
     return data[0] if data else 0
 
 
-async def set_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
-    assert xp_type in all_xp_types
+async def get_xp_db_bulk(page: int, xp_time: str="alltimexp") -> Iterable[Row]:
+    assert plugin.model.db is not None
+    async with plugin.model.db.cursor() as cur:
+        data = await (await cur.execute(f"""
+            SELECT id, {xp_time} FROM levels
+            WHERE {xp_time} > 0
+            ORDER BY {xp_time} DESC
+            LIMIT 10 OFFSET 10 * ?
+        """, (page - 1,))).fetchall()
+    return data
+
+
+async def set_xp_db(id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
+    assert xp_time in all_xp_times
     assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
         await cur.execute(f"""
-            INSERT INTO levels(id, {', '.join(all_xp_types)}) 
-            SELECT ?, {', '.join(['0'] * len(all_xp_types))}
+            INSERT INTO levels(id, {', '.join(all_xp_times)}) 
+            SELECT ?, {', '.join(['0'] * len(all_xp_times))}
             WHERE NOT EXISTS(SELECT 1 FROM levels WHERE id = ?)
         """, (id, id))
         await cur.execute(f"""
             UPDATE levels
-            SET {xp_type} = ?
+            SET {xp_time} = ?
             WHERE id = ?
         """, (xp, id))
 
@@ -182,8 +261,8 @@ async def set_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> 
         await print_db(cur)
 
 
-async def reset_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> None:
-    assert xp_type in all_xp_types
+async def reset_xp_db(id: hikari.Snowflake, xp_time: str="alltimexp") -> None:
+    assert xp_time in all_xp_times
     assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
         await cur.execute(f"""
@@ -195,14 +274,14 @@ async def reset_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> None:
         await print_db(cur)
 
 
-async def add_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
-    for xp_type in all_xp_types:
-        await set_xp_db(id, (await get_xp_db(id, xp_type)) + xp, xp_type)
+async def add_xp_db(id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
+    for xp_time in all_xp_times:
+        await set_xp_db(id, (await get_xp_db(id, xp_time)) + xp, xp_time)
 
 
-async def remove_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
-    for xp_type in all_xp_types:
-        await set_xp_db(id, max((await get_xp_db(id, xp_type)) - xp, 0), xp_type)
+async def remove_xp_db(id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
+    for xp_time in all_xp_times:
+        await set_xp_db(id, max((await get_xp_db(id, xp_time)) - xp, 0), xp_time)
 
 
 async def get_next_lvl_xp(level: int) -> int:
@@ -220,16 +299,6 @@ async def get_lvl(xp: int) -> int:
         level += 1
         sum += await get_next_lvl_xp(level)
     return level
-    
-    '''
-    level = 0
-    next = await next_level_xp(level)
-    while xp >= next:
-        xp -= next
-        level += 1
-        next = await next_level_xp(level)
-    return level
-    '''
 
 
 async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
@@ -301,6 +370,26 @@ class CheckXPCommand:
         else:
             level = await get_lvl(xp)
             await ctx.respond(f"{user.username}, you have {xp} xp and are level {level}.")
+
+
+@plugin.include
+@crescent.command(
+    name="leaderboard",
+    description="view top 10 users by xp"
+)
+class LeaderboardCommand:
+    time = crescent.option(
+        int, "time period to view xp for",
+        default=0,
+        choices=[(xp_time, i) for i, xp_time in enumerate(all_xp_times_pretty)]
+    )
+
+    async def callback(self, ctx: crescent.Context) -> None:
+        miru_client = ctx.client.model.miru_client
+        lb_menu = menu.Menu()
+        builder = await lb_menu.build_response_async(miru_client, LeaderboardScreen(lb_menu, xp_time=all_xp_times[self.time]))
+        await ctx.respond_with_builder(builder)
+        miru_client.start_view(lb_menu)
 
 
 xp_group = crescent.Group(name="xp", description="xp management commands")
