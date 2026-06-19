@@ -6,10 +6,12 @@ import os
 
 @dataclasses.dataclass
 class Model:
+    bot: hikari.GatewayBot
     miru_client: miru.Client
     db: aiosqlite.Connection | None
 
-    def __init__(self, miru_client) -> None:
+    def __init__(self, bot, miru_client) -> None:
+        self.bot = bot
         self.miru_client = miru_client
         self.db = None
 

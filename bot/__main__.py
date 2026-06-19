@@ -24,7 +24,7 @@ async def unhandled_comp_hook(inter: hikari.ComponentInteraction) -> None:
 
 miru_client = miru.Client(bot)
 miru_client.set_unhandled_component_interaction_hook(unhandled_comp_hook)
-model = Model(miru_client)
+model = Model(bot, miru_client)
 
 client = crescent.Client(bot, model)
 client.plugins.load_folder("bot.plugins")

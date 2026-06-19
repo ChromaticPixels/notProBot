@@ -23,7 +23,7 @@ with open("bot/data/temp_settings.json", "r") as f:
     settings = json.load(f)
 
 # ids get added/removed on message to control xp gain per cooldown
-on_cooldown = set()
+ids_on_cooldoWn = set()
 
 # currently all xp types are in one table
 # this will likely change later to one per table
@@ -113,6 +113,18 @@ class TeaView(ContextView):
         # ...thus, moderate scuff
         await self.crescent_ctx.respond("Nobody joined? How drab...")
 
+    '''
+    @plugin.include
+    @crescent.command(
+        name="ping",
+        description="ping pong"
+    )
+    async def ping(ctx: crescent.Context) -> None:
+        view = TeaView(ctx, timeout=3.0)
+        await ctx.respond("Pong!", components=view) 
+        ctx.client.model.miru_client.start_view(view)
+    '''
+
 
 async def print_db(cur: aiosqlite.Cursor) -> None:
     data = await cur.execute("""
@@ -193,17 +205,17 @@ async def remove_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") 
 
 async def cooldown_hook(event: hikari.MessageCreateEvent) -> None:
     user = event.message.author
-    if user.id in on_cooldown:
+    if user.id in ids_on_cooldoWn:
         return
     
-    on_cooldown.add(user.id)
+    ids_on_cooldoWn.add(user.id)
     await asyncio.sleep(settings["Calculation"]["Cooldown"])
-    on_cooldown.remove(user.id)
+    ids_on_cooldoWn.remove(user.id)
 
 
 async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     user = event.message.author
-    if user.id in on_cooldown:
+    if user.id in ids_on_cooldoWn:
         return
     
     xp = random.randint(
@@ -232,18 +244,6 @@ async def handle_is_bot_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
 async def on_message_create(event: hikari.MessageCreateEvent) -> None:
     if not event.message.author.is_bot:
         await handle_msg_xp_gain(event)
-
-
-# this should move out of levels plugin
-@plugin.include
-@crescent.command(
-    name="ping",
-    description="ping pong"
-)
-async def ping(ctx: crescent.Context) -> None:
-    view = TeaView(ctx, timeout=3.0)
-    await ctx.respond("Pong!", components=view) 
-    ctx.client.model.miru_client.start_view(view)
 
 
 @plugin.include
