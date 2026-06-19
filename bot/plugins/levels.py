@@ -114,6 +114,7 @@ class TeaView(ContextView):
         # ...thus, moderate scuff
         await self.crescent_ctx.respond("Nobody joined? How drab...")
 
+    # ping from teabot as example for future me
     '''
     @plugin.include
     @crescent.command(
@@ -151,7 +152,7 @@ async def init_db() -> None:
         await print_db(cur)
 
 
-async def get_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> int | None:
+async def get_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> int:
     assert xp_type in all_xp_types
     assert plugin.model.db is not None
     async with plugin.model.db.cursor() as cur:
@@ -159,7 +160,7 @@ async def get_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> int | Non
             SELECT {xp_type} FROM levels
             WHERE id = ?
         """, (id,))).fetchone()
-    return data[0] if data else None
+    return data[0] if data else 0
 
 
 async def set_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
@@ -196,47 +197,13 @@ async def reset_xp_db(id: hikari.Snowflake, xp_type: str="alltimexp") -> None:
 
 async def add_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
     for xp_type in all_xp_types:
-        await set_xp_db(id, (await get_xp_db(id, xp_type) or 0) + xp, xp_type)
+        await set_xp_db(id, (await get_xp_db(id, xp_type)) + xp, xp_type)
 
 
 async def remove_xp_db(id: hikari.Snowflake, xp: int, xp_type: str="alltimexp") -> None:
     for xp_type in all_xp_types:
-        await set_xp_db(id, max((await get_xp_db(id, xp_type) or 0) - xp, 0), xp_type)
+        await set_xp_db(id, max((await get_xp_db(id, xp_type)) - xp, 0), xp_type)
 
-
-async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
-    user = event.message.author
-    if user.id in ids_on_cooldoWn:
-        return
-    
-    ids_on_cooldoWn.add(user.id)
-    await asyncio.sleep(settings["Calculation"]["Cooldown"])
-    ids_on_cooldoWn.remove(user.id)
-
-
-async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
-    user = event.message.author
-    if user.id in ids_on_cooldoWn:
-        return
-    
-    xp = random.randint(
-        settings["Calculation"]["Minimum XP"],
-        settings["Calculation"]["Maximum XP"]
-    )
-    await add_xp_db(user.id, xp)
-
-    # currently for testing
-    # possibly make ephemeral as a prod feature?
-    # would require user settings but would be useful for admins
-    # but i am the only admin who debugs xp gain so meh
-    await event.message.respond("This Pro-flop is Pissing me off...")
-
-
-async def handle_is_bot_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
-    if id == ctx.application_id:
-        await ctx.respond("~~Someday~~ I mean what?")
-        return
-    await ctx.respond("We bots don't earn xp...")
 
 async def get_next_lvl_xp(level: int) -> int:
     # default is `max(floor(208 / 3 * {level} - 104 / 3) + {xp}, 1)`
@@ -244,6 +211,7 @@ async def get_next_lvl_xp(level: int) -> int:
     # so just `max(floor(208 / 3 * {level} - 104 / 3), 1)` as default
     # and non-default later
     return max(math.floor(208 / 3 * level - 104 / 3), 1)
+
 
 async def get_lvl(xp: int) -> int:
     level = 0
@@ -262,6 +230,48 @@ async def get_lvl(xp: int) -> int:
         next = await next_level_xp(level)
     return level
     '''
+
+
+async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
+    user = event.message.author
+    if user.id in ids_on_cooldoWn:
+        return
+    
+    ids_on_cooldoWn.add(user.id)
+    await asyncio.sleep(settings["Calculation"]["Cooldown"])
+    ids_on_cooldoWn.remove(user.id)
+
+
+async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
+    user = event.message.author
+    if user.id in ids_on_cooldoWn:
+        return
+    
+    current_xp = await get_xp_db(user.id)
+    
+    xp = random.randint(
+        settings["Calculation"]["Minimum XP"],
+        settings["Calculation"]["Maximum XP"]
+    )
+    await add_xp_db(user.id, xp)
+
+    if await get_lvl(current_xp + xp) > await get_lvl(current_xp):
+        level = await get_lvl(current_xp + xp)
+        await event.message.respond(f"{user.username} just leveled up to level {level}!")
+
+    # currently for testing
+    # possibly make ephemeral as a prod feature?
+    # would require user settings but would be useful for admins
+    # but i am the only admin who debugs xp gain so meh
+    await event.message.respond("This Pro-flop is Pissing me off...")
+
+
+async def handle_is_bot_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
+    if id == ctx.application_id:
+        await ctx.respond("~~Someday~~ I mean what?")
+        return
+    await ctx.respond("We bots don't earn xp...")
+
 
 @plugin.include
 @crescent.hook(manage_cooldown_hook, after=True)
@@ -286,7 +296,7 @@ class CheckXPCommand:
             return
 
         xp = await get_xp_db(user.id)
-        if not xp:
+        if xp == 0:
             await ctx.respond(f"{user.username}, you don't have any xp yet.")
         else:
             level = await get_lvl(xp)
