@@ -24,4 +24,6 @@ plugin = crescent.Plugin[hikari.GatewayBot, Model]()
     description="ping pong"
 )
 async def ping(ctx: crescent.Context) -> None:
-    await ctx.respond(f"Pong!\n-# Latency: {int(ctx.client.model.bot.heartbeat_latency * 1000)}ms")
+    bot = ctx.client.model.bot
+    assert isinstance(bot, hikari.GatewayBot)
+    await ctx.respond(f"Pong!\n-# Latency: {int(bot.heartbeat_latency * 1000)}ms")
