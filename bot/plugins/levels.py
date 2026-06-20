@@ -367,6 +367,8 @@ async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: h
             await app.rest.remove_role_from_member(guild_id, user, role_id)
 
 async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikari.RESTAware) -> None:
+    print(xp)
+    
     new_xp = await get_xp_db(guild_id, user.id)
     new_lvl = await get_lvl(new_xp)
 
@@ -515,9 +517,8 @@ class AddXPCommand:
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
-        old_xp = await get_xp_db(guild_id, self.user.id)
         await add_xp_db(guild_id, self.user.id, self.xp)
-        await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
+        await handle_xp_update(guild_id, self.user, self.xp, ctx.app)
 
         await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
 
@@ -565,8 +566,9 @@ class ResetXPCommand:
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
+        old_xp = await get_xp_db(guild_id, self.user.id)
         await reset_xp_db(guild_id, self.user.id)
-        #await handle_xp_update(guild_id, self.user, -self.xp, ctx.app)
+        await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
         
         await ctx.respond(f"Reset xp of {self.user.username}.")
 
