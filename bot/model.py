@@ -8,12 +8,14 @@ import os
 class Model:
     bot: hikari.GatewayBot
     miru_client: miru.Client
-    db: aiosqlite.Connection | None
+    main_db: aiosqlite.Connection | None
+    test_db: aiosqlite.Connection | None
 
     def __init__(self, bot, miru_client) -> None:
         self.bot = bot
         self.miru_client = miru_client
-        self.db = None
+        self.main_db = None
+        self.test_db = None
 
     async def on_start(self, _: hikari.StartedEvent) -> None:
 
@@ -22,9 +24,10 @@ class Model:
         connection to a database, aiohttp client, or similar.
         """
         ...
-        print(f"path: {os.getcwd()}")
-        self.db = await aiosqlite.connect("bot/data/temp_xp.db")
-        print(self.db)
+        self.main_db = await aiosqlite.connect("bot/data/main/temp_xp.db")
+        self.test_db = await aiosqlite.connect("bot/data/test/temp_xp.db")
+        print(self.main_db)
+        print(self.test_db)
 
     async def on_stop(self, _: hikari.StoppedEvent) -> None:
         """
@@ -32,5 +35,7 @@ class Model:
         cleanup functions for the model class.
         """
         ...
-        if self.db is not None:
-            await self.db.close()
+        if self.main_db is not None:
+            await self.main_db.close()
+        if self.test_db is not None:
+            await self.test_db.close()
