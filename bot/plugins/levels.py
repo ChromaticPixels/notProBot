@@ -70,6 +70,10 @@ class ContextView(miru.View):
 # test_hook is from there too
 # ContextView also is but it seems more likely usable here eventually
 
+# ignore past me past me is stupid i can just do self.menu.last_context
+# so ContextView is useless but i will keep it here
+# because then future me will see this and remove it from teabot
+
 # view for tea games (teabot)
 class TeaView(ContextView):
     def __init__(self, ctx: crescent.Context, *args, **kwargs) -> None:
@@ -210,7 +214,8 @@ async def print_db(cur: aiosqlite.Cursor) -> None:
 
 async def init_db(g_id: int) -> None:
     db = get_db(g_id)
-    assert db is not None
+    if db is None:
+        raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         await cur.execute("""
             DROP TABLE IF EXISTS levels
@@ -228,7 +233,8 @@ async def init_db(g_id: int) -> None:
 async def get_size_xp_db(g_id: int, xp_time: str="alltimexp") -> int:
     assert xp_time in all_xp_times
     db = get_db(g_id)
-    assert db is not None
+    if db is None:
+        raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         data = await (await cur.execute(f"""
             SELECT COUNT(*) FROM levels
@@ -240,7 +246,8 @@ async def get_size_xp_db(g_id: int, xp_time: str="alltimexp") -> int:
 async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp") -> int:
     assert xp_time in all_xp_times
     db = get_db(g_id)
-    assert db is not None
+    if db is None:
+        raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         data = await (await cur.execute(f"""
             SELECT {xp_time} FROM levels
@@ -251,7 +258,8 @@ async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp")
 
 async def get_xp_db_bulk(g_id: int, page: int, xp_time: str="alltimexp") -> Iterable[Row]:
     db = get_db(g_id)
-    assert db is not None
+    if db is None:
+        raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         data = await (await cur.execute(f"""
             SELECT id, {xp_time} FROM levels
@@ -265,7 +273,8 @@ async def get_xp_db_bulk(g_id: int, page: int, xp_time: str="alltimexp") -> Iter
 async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
     assert xp_time in all_xp_times
     db = get_db(g_id)
-    assert db is not None
+    if db is None:
+        raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         await cur.execute(f"""
             INSERT INTO levels(id, {', '.join(all_xp_times)}) 
@@ -338,23 +347,23 @@ async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
 
 
 async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
+    role_ids = list(map(int, (await app.rest.fetch_member(guild_id,user.id)).role_ids))
+    
+    for role_id, role_lvl in get_settings(guild_id)["Level Roles"].items():
+        if role_lvl <= lvl and int(role_id) not in role_ids:
+            await app.rest.add_role_to_member(guild_id, user, role_id)
+
     if get_settings(guild_id)["Level Up Messages"]["Enabled"]:
         await app.rest.create_message(
             get_settings(guild_id)["Level Up Messages"]["Channel"],
             f"{user.username} just leveled up to level {lvl}!"
         )
-    
-    role_ids = (await app.rest.fetch_member(guild_id,user.id)).role_ids
-    
-    for role_id, role_lvl in get_settings(guild_id)["Level Roles"].items():
-        if role_lvl <= lvl and role_id not in role_ids:
-            await app.rest.add_role_to_member(guild_id, user, role_id)
 
 async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
-    role_ids = (await app.rest.fetch_member(guild_id,user.id)).role_ids
-    
+    role_ids = list(map(int, (await app.rest.fetch_member(guild_id,user.id)).role_ids))
+
     for role_id, role_lvl in get_settings(guild_id)["Level Roles"].items():
-        if role_lvl > lvl and role_id in role_ids:
+        if role_lvl > lvl and int(role_id) in role_ids:
             await app.rest.remove_role_from_member(guild_id, user, role_id)
 
 async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikari.RESTAware) -> None:
@@ -367,6 +376,7 @@ async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikar
         await handle_lvl_increase(guild_id, user, new_lvl, app)
     
     if new_lvl < old_lvl:
+        print("level decreased")
         await handle_lvl_decrease(guild_id, user, new_lvl, app)
 
 
@@ -556,6 +566,7 @@ class ResetXPCommand:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
         await reset_xp_db(guild_id, self.user.id)
+        #await handle_xp_update(guild_id, self.user, -self.xp, ctx.app)
         
         await ctx.respond(f"Reset xp of {self.user.username}.")
 
@@ -574,16 +585,3 @@ async def init_guild_xp(ctx: crescent.Context) -> None:
     
     await init_db(guild_id)
     await ctx.respond("Blank level storage created.")
-
-
-# hook test (teabot)
-async def test_hook(ctx: crescent.Context) -> None:
-    star_msg = await ctx.respond("Star        walker")
-    await asyncio.sleep(5)
-
-
-@plugin.include
-@crescent.hook(test_hook)
-@crescent.command
-async def tea(ctx: crescent.Context) -> None:
-    await ctx.respond("piss tea")
