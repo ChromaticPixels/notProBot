@@ -1,0 +1,20 @@
+{
+    "Calculation": {
+        "Message XP": true,
+        "Cooldown": 10,
+        "Minimum XP": 1,
+        "Maximum XP": 44,
+        "Next Level Formula": "default"
+    },
+    "Denylist": {},
+    "Leaderboards": {},
+    "Level Roles": {
+        "1517650914641576066": 1
+    },
+    "Level Up Messages": {
+        "Enabled": true,
+        "Channel": 959566471539863625
+    },
+    "Rank Cards": {},
+    "Logging": {}
+}
