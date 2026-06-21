@@ -7,7 +7,11 @@
         "Next Level Formula": "default"
     },
     "Denylist": {},
-    "Leaderboards": {},
+    "Leaderboards": {
+        "Monthly": true,
+        "Weekly": false,
+        "Daily": false
+    },
     "Level Roles": {
         "1517650914641576066": 1
     },

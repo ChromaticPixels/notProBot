@@ -28,8 +28,18 @@ with open("bot/data/main/temp_settings.json", "r") as f:
 with open("bot/data/test/temp_settings.json", "r") as f:
     test_settings: dict = json.load(f)
 
-# ids get added/removed on message to control xp gain per cooldown
-ids_on_cooldoWn = set()
+
+def get_db(id: int) -> aiosqlite.Connection | None:
+    return plugin.model.main_db if id == main_guild_id else plugin.model.test_db
+
+
+def get_settings(id: int) -> dict:
+    return main_settings if id == main_guild_id else test_settings
+
+
+def ceildiv(a: int, b: int) -> int:
+    return -(a // -b)
+
 
 # currently all xp times are in one table
 # this will likely change later to one per table
@@ -48,17 +58,8 @@ all_xp_times_pretty = (
     "Daily"
 )
 
-
-def get_db(id: int) -> aiosqlite.Connection | None:
-    return plugin.model.main_db if id == main_guild_id else plugin.model.test_db
-
-
-def get_settings(id: int) -> dict:
-    return main_settings if id == main_guild_id else test_settings
-
-
-def ceildiv(a: int, b: int) -> int:
-    return -(a // -b)
+# ids get added/removed on message to control xp gain per cooldown
+ids_on_cooldoWn = set()
 
 
 class PreviousButton(menu.ScreenButton):
@@ -244,13 +245,17 @@ async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp
 
 async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
     for xp_time in all_xp_times:
+        if not get_settings(g_id)["Leaderboard"][all_xp_times_pretty[all_xp_times.index(xp_time)]]:
+            continue
         old_xp = await get_xp_db(g_id, u_id, xp_time)
         await set_xp_db(g_id, u_id, old_xp + xp, xp_time)
 
 
 async def remove_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
     for xp_time in all_xp_times:
-        old_xp = (await get_xp_db(g_id, u_id, xp_time))
+        if not get_settings(g_id)["Leaderboard"][all_xp_times_pretty[all_xp_times.index(xp_time)]]:
+            continue
+        old_xp = await get_xp_db(g_id, u_id, xp_time)
         await set_xp_db(g_id, u_id, max(old_xp - xp, 0), xp_time)
 
 
@@ -378,12 +383,16 @@ async def confirmation_hook(ctx: crescent.Context) -> crescent.HookResult:
     return result
 
 
+async def is_human_hook(event: hikari.MessageCreateEvent) -> crescent.HookResult:
+    return crescent.HookResult(exit=event.message.author.is_bot)
+
+
 @plugin.include
+@crescent.hook(is_human_hook)
 @crescent.hook(manage_cooldown_hook, after=True)
 @crescent.event
 async def on_message_create(event: hikari.MessageCreateEvent) -> None:
-    if not event.message.author.is_bot:
-        await handle_msg_xp_gain(event)
+    await handle_msg_xp_gain(event)
 
 
 @plugin.include
@@ -425,6 +434,14 @@ class LeaderboardCommand:
     )
 
     async def callback(self, ctx: crescent.Context) -> None:
+        guild_id = ctx.guild_id
+        if guild_id is None:
+            raise hikari.ComponentStateConflictError("No guild id found.")
+        
+        if not get_settings(guild_id)["Leaderboards"][all_xp_times_pretty[self.time]]:
+            await ctx.respond("This leaderboard is disabled.", ephemeral=True)
+            return
+
         miru_client = ctx.client.model.miru_client
         assert isinstance(miru_client, miru.Client)
 
