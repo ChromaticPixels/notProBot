@@ -3,16 +3,12 @@ import os
 import asyncio
 import json
 import math
-import typing
-import datetime
-from collections import Counter
-from collections.abc import Iterable, Callable
+from collections.abc import Iterable
 
 import crescent
 import hikari
 import miru
 import aiosqlite
-from crescent.ext import cooldowns
 from miru.ext import menu
 from sqlite3 import Row
 
@@ -52,102 +48,17 @@ all_xp_times_pretty = (
     "Daily"
 )
 
-get_db: Callable = lambda id: plugin.model.main_db if id == main_guild_id else plugin.model.test_db
 
-get_settings: Callable[[int], dict] = lambda id: main_settings if id == main_guild_id else test_settings
-
-ceildiv: Callable[[int, int], int] = lambda a, b: -(a // -b)
+def get_db(id: int) -> aiosqlite.Connection | None:
+    return plugin.model.main_db if id == main_guild_id else plugin.model.test_db
 
 
-class OriginalCrescentCtxView(miru.View):
-    def __init__(self, ctx: crescent.Context, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.original_ctx = ctx
+def get_settings(id: int) -> dict:
+    return main_settings if id == main_guild_id else test_settings
 
 
-# TeaView is a vestigal class from another bot
-# i keep it around in case something inside is useful later
-# test_hook is from there too
-# ContextView also is but it seems more likely usable here eventually
-
-# view for tea games (teabot)
-class TeaView(OriginalCrescentCtxView):
-    def __init__(self, ctx: crescent.Context, *args, **kwargs) -> None:
-        super().__init__(ctx, *args, **kwargs)
-        self.host = self.original_ctx.interaction.user.id
-        self.players = set()
-
-    # define a new TextSelect menu with two options (vestigal template that might be useful)
-    '''@miru.text_select(
-        placeholder="Select me!",
-        options=[
-            miru.SelectOption(label="Option 1"),
-            miru.SelectOption(label="Option 2"),
-        ],
-    )
-    async def basic_select(self, ctx: miru.ViewContext, select: miru.TextSelect) -> None:
-        await ctx.respond(f"You've chosen {select.values[0]}!")'''
-
-    # join tea
-    @miru.button(
-        custom_id=f"join_{os.urandom(16).hex()}",
-        label="Players: 0",
-        style=hikari.ButtonStyle.PRIMARY
-    )
-    async def join_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
-        was_in_players = ctx.interaction.user.id in self.players
-        if was_in_players:
-            self.players.remove(ctx.interaction.user.id)
-        else:
-            self.players.add(ctx.interaction.user.id)
-        button.label = f"Players: {len(self.players)}"
-        await ctx.edit_response(components=self)
-        await ctx.respond("Left!" if was_in_players else "Joined!", flags=hikari.MessageFlag.EPHEMERAL)
-
-    # cancel tea
-    @miru.button(
-        custom_id=f"stop_{os.urandom(16).hex()}",
-        label="Abort! (Host)",
-        style=hikari.ButtonStyle.DANGER
-    )
-    async def stop_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
-        await ctx.respond("The host has aborted.")
-        self.stop()
-
-    async def view_check(self, ctx: miru.ViewContext) -> bool:
-        if ctx.interaction.custom_id.startswith("stop") and ctx.interaction.user.id != self.host:
-            return False
-        return True
-
-    # TODO: create followup to begin tea
-    # pass self.players and maybe self.crescent_ctx
-    # select from threes, listen for messages from ids in self.players
-    # expire after 10s (default for now)
-    # recurse if score threshold is not reached
-
-    # reminder: multiple games in one channel, but not multiple games for one user
-    # so, disable multiple games in one channel for now, because you can't fully scope to ctx
-    # (you have to check if user is already a player in an ongoing game in channel)
-    async def on_timeout(self) -> None:
-        # if no interactions, no ctx available to respond with...
-        if self.message is not None and len(self.players) > 0:
-            await self.message.respond(f"It seems {len(self.players)} player(s) were interested.")
-            return None
-        # ...thus, moderate scuff
-        await self.original_ctx.respond("Nobody joined? How drab...")
-
-    # ping from teabot as example for future me
-    '''
-    @plugin.include
-    @crescent.command(
-        name="ping",
-        description="ping pong"
-    )
-    async def ping(ctx: crescent.Context) -> None:
-        view = TeaView(ctx, timeout=3.0)
-        await ctx.respond("Pong!", components=view) 
-        ctx.client.model.miru_client.start_view(view)
-    '''
+def ceildiv(a: int, b: int) -> int:
+    return -(a // -b)
 
 
 class PreviousButton(menu.ScreenButton):
@@ -168,6 +79,12 @@ class NextLeaderboardButton(menu.ScreenButton):
         await self.menu.push(LeaderboardScreen(self.menu, self.page + 1, self.xp_time))
 
 
+class OriginalCrescentCtxView(miru.View):
+    def __init__(self, ctx: crescent.Context, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.original_ctx = ctx
+
+
 class ConfirmView(OriginalCrescentCtxView):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -176,10 +93,12 @@ class ConfirmView(OriginalCrescentCtxView):
     @miru.button(label="Confirm", style=hikari.ButtonStyle.SUCCESS)
     async def confirm_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
         self.result = crescent.HookResult()
+        self.stop()
     
     @miru.button(label="Cancel", style=hikari.ButtonStyle.DANGER)
     async def cancel_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
         self.result = crescent.HookResult(exit=True)
+        self.stop()
 
     async def view_check(self, ctx: miru.ViewContext) -> bool:
         return ctx.user.id == self.original_ctx.user.id
@@ -210,11 +129,13 @@ class LeaderboardScreen(menu.Screen):
             description=info,
             color=hikari.Color(0x000000)
         )
-        content.set_footer(f"Page {self.page}/{ceildiv(await get_size_xp_db(guild_id, self.xp_time), 10)}")
+
+        max_pages = ceildiv(await get_size_xp_db(guild_id, self.xp_time), 10)
+        content.set_footer(f"Page {self.page}/{max_pages}")
 
         if self.page > 1:
             self.menu.add_item(PreviousButton())
-        if self.page < ceildiv(await get_size_xp_db(guild_id, self.xp_time), 10):
+        if self.page < ceildiv(max_pages, 10):
             self.menu.add_item(NextLeaderboardButton(page=self.page, xp_time=self.xp_time))
         
         return menu.ScreenContent(embed=content,)
@@ -244,6 +165,7 @@ async def init_db(g_id: int) -> None:
 
         await db.commit()
         await print_db(cur)
+
 
 async def get_size_xp_db(g_id: int, xp_time: str="alltimexp") -> int:
     assert xp_time in all_xp_times
@@ -322,12 +244,14 @@ async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp
 
 async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
     for xp_time in all_xp_times:
-        await set_xp_db(g_id, u_id, (await get_xp_db(g_id, u_id, xp_time)) + xp, xp_time)
+        old_xp = await get_xp_db(g_id, u_id, xp_time)
+        await set_xp_db(g_id, u_id, old_xp + xp, xp_time)
 
 
 async def remove_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
     for xp_time in all_xp_times:
-        await set_xp_db(g_id, u_id, max((await get_xp_db(g_id, u_id, xp_time)) - xp, 0), xp_time)
+        old_xp = (await get_xp_db(g_id, u_id, xp_time))
+        await set_xp_db(g_id, u_id, max(old_xp - xp, 0), xp_time)
 
 
 async def get_next_lvl_xp(lvl: int) -> int:
@@ -360,12 +284,14 @@ async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: h
             f"{user.username} just leveled up to level {lvl}!"
         )
 
+
 async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
     role_ids = list(map(int, (await app.rest.fetch_member(guild_id,user.id)).role_ids))
 
     for role_id, role_lvl in get_settings(guild_id)["Level Roles"].items():
         if role_lvl > lvl and int(role_id) in role_ids:
             await app.rest.remove_role_from_member(guild_id, user, role_id)
+
 
 async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikari.RESTAware) -> None:
     new_xp = await get_xp_db(guild_id, user.id)
@@ -504,7 +430,10 @@ class LeaderboardCommand:
 
         lb_menu = menu.Menu()
 
-        builder = await lb_menu.build_response_async(miru_client, LeaderboardScreen(lb_menu, xp_time=all_xp_times[self.time]))
+        builder = await lb_menu.build_response_async(
+            miru_client,
+            LeaderboardScreen(lb_menu, xp_time=all_xp_times[self.time])
+        )
         await ctx.respond_with_builder(builder)
 
         miru_client.start_view(lb_menu)
@@ -533,6 +462,7 @@ class SetXPCommand:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
         old_xp = await get_xp_db(guild_id, self.user.id)
+
         await set_xp_db(guild_id, self.user.id, self.xp)
         await handle_xp_update(guild_id, self.user, self.xp - old_xp, ctx.app)
 
@@ -608,6 +538,7 @@ class ResetXPCommand:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
         old_xp = await get_xp_db(guild_id, self.user.id)
+        
         await reset_xp_db(guild_id, self.user.id)
         await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
         
