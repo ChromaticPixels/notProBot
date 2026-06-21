@@ -9,7 +9,7 @@ import crescent
 import hikari
 import miru
 import aiosqlite
-from miru.ext import menu
+from miru.ext import menu, nav
 from sqlite3 import Row
 
 from bot.pprintify import pprintify
@@ -39,6 +39,10 @@ def get_settings(id: int) -> dict:
 
 def ceildiv(a: int, b: int) -> int:
     return -(a // -b)
+
+def xp_time_is_enabled(guild_id: int, i: int) -> bool:
+    return (all_xp_times[i] == "alltimexp"
+        or get_settings(guild_id)["Leaderboards"][all_xp_times_pretty[i]])
 
 
 # currently all xp times are in one table
@@ -70,16 +74,6 @@ class PreviousButton(menu.ScreenButton):
         await self.menu.pop()
 
 
-class NextLeaderboardButton(menu.ScreenButton):
-    def __init__(self, page=1, xp_time: str="alltimexp") -> None:
-        super().__init__(label="Next", style=hikari.ButtonStyle.SECONDARY)
-        self.page = page
-        self.xp_time = xp_time
-
-    async def callback(self, ctx: miru.ViewContext) -> None:
-        await self.menu.push(LeaderboardScreen(self.menu, self.page + 1, self.xp_time))
-
-
 class OriginalCrescentCtxView(miru.View):
     def __init__(self, ctx: crescent.Context, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -103,43 +97,6 @@ class ConfirmView(OriginalCrescentCtxView):
 
     async def view_check(self, ctx: miru.ViewContext) -> bool:
         return ctx.user.id == self.original_ctx.user.id
-
-
-class LeaderboardScreen(menu.Screen):
-    def __init__(self, menu: menu.Menu, page=1, xp_time: str="alltimexp") -> None:
-        super().__init__(menu)
-        self.page = page
-        self.xp_time = xp_time
-
-    async def build_content(self) -> menu.ScreenContent:
-        if self.menu.message is None:
-            raise hikari.ComponentStateConflictError("Menu is unbound.")
-        guild_id = self.menu.message.guild_id
-        if guild_id is None:
-            raise hikari.ComponentStateConflictError("No guild id found.")
-        
-        info = ""
-        for i, (id, xp) in enumerate(await get_xp_db_bulk(guild_id, self.page, self.xp_time)):
-            user = await plugin.model.bot.rest.fetch_user(id)
-            info += f"{i + 1}. {user.mention} · Level {await get_lvl(xp)} · {xp} XP\n"
-
-        content = hikari.Embed(
-            title=f"Leaderboard{': '
-                + all_xp_times_pretty[all_xp_times.index(self.xp_time)]
-            if self.xp_time != 'alltimexp' else ''}",
-            description=info,
-            color=hikari.Color(0x000000)
-        )
-
-        max_pages = ceildiv(await get_size_xp_db(guild_id, self.xp_time), 10)
-        content.set_footer(f"Page {self.page}/{max_pages}")
-
-        if self.page > 1:
-            self.menu.add_item(PreviousButton())
-        if self.page < ceildiv(max_pages, 10):
-            self.menu.add_item(NextLeaderboardButton(page=self.page, xp_time=self.xp_time))
-        
-        return menu.ScreenContent(embed=content,)
 
 
 async def print_db(cur: aiosqlite.Cursor) -> None:
@@ -245,7 +202,7 @@ async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp
 
 async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
     for xp_time in all_xp_times:
-        if not get_settings(g_id)["Leaderboard"][all_xp_times_pretty[all_xp_times.index(xp_time)]]:
+        if not xp_time_is_enabled(g_id, all_xp_times.index(xp_time)):
             continue
         old_xp = await get_xp_db(g_id, u_id, xp_time)
         await set_xp_db(g_id, u_id, old_xp + xp, xp_time)
@@ -253,7 +210,7 @@ async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="al
 
 async def remove_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
     for xp_time in all_xp_times:
-        if not get_settings(g_id)["Leaderboard"][all_xp_times_pretty[all_xp_times.index(xp_time)]]:
+        if not xp_time_is_enabled(g_id, all_xp_times.index(xp_time)):
             continue
         old_xp = await get_xp_db(g_id, u_id, xp_time)
         await set_xp_db(g_id, u_id, max(old_xp - xp, 0), xp_time)
@@ -438,22 +395,43 @@ class LeaderboardCommand:
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
-        if not get_settings(guild_id)["Leaderboards"][all_xp_times_pretty[self.time]]:
+        if not xp_time_is_enabled(guild_id, self.time):
             await ctx.respond("This leaderboard is disabled.", ephemeral=True)
             return
 
         miru_client = ctx.client.model.miru_client
         assert isinstance(miru_client, miru.Client)
 
-        lb_menu = menu.Menu()
+        rest = ctx.app.rest
 
-        builder = await lb_menu.build_response_async(
-            miru_client,
-            LeaderboardScreen(lb_menu, xp_time=all_xp_times[self.time])
-        )
+        xp_time = all_xp_times[self.time]
+        xp_time_pretty = all_xp_times_pretty[all_xp_times.index(xp_time)]
+
+        max_pages = ceildiv(await get_size_xp_db(guild_id, xp_time), 10)
+
+        # i have not made a list comprehension like this in years okay
+        # let me have this
+        lb_nav = nav.NavigatorView(pages=[
+            hikari.Embed(
+                title=f"Leaderboard{': ' + xp_time_pretty
+                    if xp_time != 'alltimexp' else ''}",
+                description="\n".join([
+                    f"{(page - 1) * 10 + i + 1}. {
+                        (await rest.fetch_user(id)).mention
+                    } · Level {await get_lvl(xp)} · {xp} XP"
+                    for i, (id, xp) in enumerate(
+                        await get_xp_db_bulk(
+                            guild_id, page, xp_time
+                        )
+                    )
+                ])
+            )
+            for page in range(1, max_pages + 1)
+        ])
+
+        builder = await lb_nav.build_response_async(miru_client)
         await ctx.respond_with_builder(builder)
-
-        miru_client.start_view(lb_menu)
+        miru_client.start_view(lb_nav)
 
 
 xp_group = crescent.Group(name="xp", description="xp management commands")
