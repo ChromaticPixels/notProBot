@@ -58,11 +58,11 @@ get_settings: Callable[[int], dict] = lambda id: main_settings if id == main_gui
 
 ceildiv: Callable[[int, int], int] = lambda a, b: -(a // -b)
 
-# view with crescent context passed for additional utility
-class ContextView(miru.View):
+
+class OriginalCrescentCtxView(miru.View):
     def __init__(self, ctx: crescent.Context, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.crescent_ctx = ctx
+        self.original_ctx = ctx
 
 
 # TeaView is a vestigal class from another bot
@@ -70,15 +70,11 @@ class ContextView(miru.View):
 # test_hook is from there too
 # ContextView also is but it seems more likely usable here eventually
 
-# ignore past me past me is stupid i can just do self.menu.last_context
-# so ContextView is useless but i will keep it here
-# because then future me will see this and remove it from teabot
-
 # view for tea games (teabot)
-class TeaView(ContextView):
+class TeaView(OriginalCrescentCtxView):
     def __init__(self, ctx: crescent.Context, *args, **kwargs) -> None:
         super().__init__(ctx, *args, **kwargs)
-        self.host = self.crescent_ctx.interaction.user.id
+        self.host = self.original_ctx.interaction.user.id
         self.players = set()
 
     # define a new TextSelect menu with two options (vestigal template that might be useful)
@@ -138,7 +134,7 @@ class TeaView(ContextView):
             await self.message.respond(f"It seems {len(self.players)} player(s) were interested.")
             return None
         # ...thus, moderate scuff
-        await self.crescent_ctx.respond("Nobody joined? How drab...")
+        await self.original_ctx.respond("Nobody joined? How drab...")
 
     # ping from teabot as example for future me
     '''
@@ -153,12 +149,14 @@ class TeaView(ContextView):
         ctx.client.model.miru_client.start_view(view)
     '''
 
+
 class PreviousButton(menu.ScreenButton):
     def __init__(self) -> None:
         super().__init__(label="Previous", style=hikari.ButtonStyle.SECONDARY)
 
     async def callback(self, ctx: miru.ViewContext) -> None:
         await self.menu.pop()
+
 
 class NextLeaderboardButton(menu.ScreenButton):
     def __init__(self, page=1, xp_time: str="alltimexp") -> None:
@@ -168,6 +166,24 @@ class NextLeaderboardButton(menu.ScreenButton):
 
     async def callback(self, ctx: miru.ViewContext) -> None:
         await self.menu.push(LeaderboardScreen(self.menu, self.page + 1, self.xp_time))
+
+
+class ConfirmView(OriginalCrescentCtxView):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.result: crescent.HookResult | None = None
+    
+    @miru.button(label="Confirm", style=hikari.ButtonStyle.SUCCESS)
+    async def confirm_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
+        self.result = crescent.HookResult()
+    
+    @miru.button(label="Cancel", style=hikari.ButtonStyle.DANGER)
+    async def cancel_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
+        self.result = crescent.HookResult(exit=True)
+
+    async def view_check(self, ctx: miru.ViewContext) -> bool:
+        return ctx.user.id == self.original_ctx.user.id
+
 
 class LeaderboardScreen(menu.Screen):
     def __init__(self, menu: menu.Menu, page=1, xp_time: str="alltimexp") -> None:
@@ -182,7 +198,6 @@ class LeaderboardScreen(menu.Screen):
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
-        print(self.xp_time)
         info = ""
         for i, (id, xp) in enumerate(await get_xp_db_bulk(guild_id, self.page, self.xp_time)):
             user = await plugin.model.bot.rest.fetch_user(id)
@@ -332,20 +347,6 @@ async def get_lvl(xp: int) -> int:
     return lvl
 
 
-async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
-    user = event.message.author
-    if user.id in ids_on_cooldoWn:
-        return
-    
-    guild_id = event.message.guild_id
-    if guild_id is None:
-        raise hikari.ComponentStateConflictError("No guild id found.")
-    
-    ids_on_cooldoWn.add(user.id)
-    await asyncio.sleep(get_settings(int(guild_id))["Calculation"]["Cooldown"])
-    ids_on_cooldoWn.remove(user.id)
-
-
 async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
     role_ids = list(map(int, (await app.rest.fetch_member(guild_id,user.id)).role_ids))
     
@@ -367,8 +368,6 @@ async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: h
             await app.rest.remove_role_from_member(guild_id, user, role_id)
 
 async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikari.RESTAware) -> None:
-    print(xp)
-    
     new_xp = await get_xp_db(guild_id, user.id)
     new_lvl = await get_lvl(new_xp)
 
@@ -378,7 +377,6 @@ async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikar
         await handle_lvl_increase(guild_id, user, new_lvl, app)
     
     if new_lvl < old_lvl:
-        print("level decreased")
         await handle_lvl_decrease(guild_id, user, new_lvl, app)
 
 
@@ -411,6 +409,47 @@ async def handle_is_bot_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
         await ctx.respond("~~Someday~~ I mean what?")
         return
     await ctx.respond("We bots don't earn xp...")
+
+
+async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
+    user = event.message.author
+    if user.id in ids_on_cooldoWn:
+        return
+    
+    guild_id = event.message.guild_id
+    if guild_id is None:
+        raise hikari.ComponentStateConflictError("No guild id found.")
+    
+    ids_on_cooldoWn.add(user.id)
+    await asyncio.sleep(get_settings(int(guild_id))["Calculation"]["Cooldown"])
+    ids_on_cooldoWn.remove(user.id)
+
+
+async def confirmation_hook(ctx: crescent.Context) -> crescent.HookResult:
+    await ctx.respond("Waiting for confirmation...")
+    
+    view = ConfirmView(ctx, timeout=15.0)
+
+    confirm = await ctx.respond(
+        "Are you sure? **This cannot be undone.**",
+        components=view,
+        ephemeral=True
+    )
+
+    miru_client = ctx.client.model.miru_client
+    assert isinstance(miru_client, miru.Client)
+
+    miru_client.start_view(view)
+    await view.wait_for_input()
+
+    if confirm is not None:
+        await confirm.delete()
+
+    result = view.result or crescent.HookResult(exit=True)
+    if result.exit:
+        await ctx.delete()
+    
+    return result
 
 
 @plugin.include
@@ -461,6 +500,8 @@ class LeaderboardCommand:
 
     async def callback(self, ctx: crescent.Context) -> None:
         miru_client = ctx.client.model.miru_client
+        assert isinstance(miru_client, miru.Client)
+
         lb_menu = menu.Menu()
 
         builder = await lb_menu.build_response_async(miru_client, LeaderboardScreen(lb_menu, xp_time=all_xp_times[self.time]))
@@ -571,10 +612,11 @@ class ResetXPCommand:
         await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
         
         await ctx.respond(f"Reset xp of {self.user.username}.")
+        await ctx.respond("apple")
 
 
-# (admin) reset guild xp (ADD CONFIRMATION!!!!!11!!1!)
 @plugin.include
+@crescent.hook(confirmation_hook)
 @crescent.command(
     name="init",
     description="removes all level data & creates a new level storage",
@@ -583,7 +625,11 @@ class ResetXPCommand:
 async def init_guild_xp(ctx: crescent.Context) -> None:
     guild_id = ctx.guild_id
     if guild_id is None:
-        return
-    
+        raise hikari.ComponentStateConflictError("No guild id found.")
+
+    await ctx.edit("Initializing...")
     await init_db(guild_id)
-    await ctx.respond("Blank level storage created.")
+
+    await asyncio.sleep(1)
+
+    await ctx.edit("Blank level storage created.")
