@@ -1,12 +1,16 @@
 {
     "Calculation": {
         "Message XP": true,
-        "Cooldown": 10,
+        "Cooldown": 7,
         "Minimum XP": 1,
         "Maximum XP": 44,
         "Next Level Formula": "default"
     },
-    "Denylist": {},
+    "Denylist": {
+        "Denied Channels": [959566472001228800],
+        "Denied Roles": [],
+        "Denied Users": []
+    },
     "Leaderboards": {
         "Monthly": true,
         "Weekly": false,

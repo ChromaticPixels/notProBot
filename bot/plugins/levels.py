@@ -37,8 +37,13 @@ def get_settings(id: int) -> dict:
     return main_settings if id == main_guild_id else test_settings
 
 
+async def get_user_roles(g_id: int, u_id: int, app: hikari.RESTAware) -> list[int]:
+    return list(map(int, (await app.rest.fetch_member(g_id, u_id)).role_ids))
+
+
 def ceildiv(a: int, b: int) -> int:
     return -(a // -b)
+
 
 def xp_time_is_enabled(guild_id: int, i: int) -> bool:
     return (all_xp_times[i] == "alltimexp"
@@ -234,7 +239,7 @@ async def get_lvl(xp: int) -> int:
 
 
 async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
-    role_ids = list(map(int, (await app.rest.fetch_member(guild_id,user.id)).role_ids))
+    role_ids = await get_user_roles(guild_id, user.id, app)
     
     for role_id, role_lvl in get_settings(guild_id)["Level Roles"].items():
         if role_lvl <= lvl and int(role_id) not in role_ids:
@@ -248,7 +253,7 @@ async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: h
 
 
 async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
-    role_ids = list(map(int, (await app.rest.fetch_member(guild_id,user.id)).role_ids))
+    role_ids = await get_user_roles(guild_id, user.id, app)
 
     for role_id, role_lvl in get_settings(guild_id)["Level Roles"].items():
         if role_lvl > lvl and int(role_id) in role_ids:
@@ -267,6 +272,18 @@ async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikar
     if new_lvl < old_lvl:
         await handle_lvl_decrease(guild_id, user, new_lvl, app)
 
+async def user_xp_denied(g_id: int, c_id: int, u_id: int, app: hikari.RESTAware) -> bool:
+    settings = get_settings(g_id)
+    denylist = settings["Denylist"]
+
+    role_ids = await get_user_roles(g_id, u_id, app)
+
+    return (
+        int(c_id) in denylist["Denied Channels"]
+        or len(set(role_ids) & set(denylist["Denied Roles"])) > 0
+        or int(u_id) in denylist["Denied Users"]
+    )
+
 
 async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     user = event.message.author
@@ -276,10 +293,14 @@ async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     guild_id = event.message.guild_id
     if guild_id is None:
         raise hikari.ComponentStateConflictError("No guild id found.")
-    
+
+    if await user_xp_denied(guild_id, event.message.channel_id, user.id, event.app):
+        return
+
+    calculation = get_settings(guild_id)["Calculation"]
     xp = random.randint(
-        get_settings(guild_id)["Calculation"]["Minimum XP"],
-        get_settings(guild_id)["Calculation"]["Maximum XP"]
+        calculation["Minimum XP"],
+        calculation["Maximum XP"]
     )
 
     await add_xp_db(guild_id, user.id, xp)
@@ -300,13 +321,14 @@ async def handle_is_bot_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
 
 
 async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
-    user = event.message.author
-    if user.id in ids_on_cooldoWn:
-        return
     
     guild_id = event.message.guild_id
     if guild_id is None:
         raise hikari.ComponentStateConflictError("No guild id found.")
+    
+    user = event.message.author
+    if user.id in ids_on_cooldoWn or await user_xp_denied(guild_id, event.message.channel_id, user.id, event.app):
+        return
     
     ids_on_cooldoWn.add(user.id)
     await asyncio.sleep(get_settings(int(guild_id))["Calculation"]["Cooldown"])
@@ -538,7 +560,6 @@ class ResetXPCommand:
         await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
         
         await ctx.respond(f"Reset xp of {self.user.username}.")
-        await ctx.respond("apple")
 
 
 @plugin.include
