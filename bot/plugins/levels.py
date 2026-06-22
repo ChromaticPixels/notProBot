@@ -318,8 +318,22 @@ async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     await event.message.respond("This Pro-flop is Pissing me off...")
 
 
+async def log_manual_xp(guild_id: hikari.Snowflake, cmd_user: hikari.User, arg_user: hikari.User, app: hikari.RESTAware) -> None:
+    channel_id = get_settings(guild_id)["Logging Channels"]["Manual XP"]
+    if channel_id is None:
+        return
+
+    await app.rest.create_message(
+        channel_id,
+        embed=hikari.Embed(
+            title="Manual XP",
+            description=f"{cmd_user.mention} altered {arg_user.mention}"
+        )
+    )
+
+
 async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
-    user = ctx.options.get("user", ctx.user) or ctx.user
+    user = ctx.options.get("user", ctx.user)
     if not user.is_bot:
         return crescent.HookResult()
 
@@ -494,6 +508,7 @@ class SetXPCommand:
         else:
             await handle_xp_update(guild_id, self.user, self.xp - old_xp, ctx.app)
             await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
+            await log_manual_xp(guild_id, ctx.user, self.user, ctx.app)
 
 
 @plugin.include
@@ -518,6 +533,7 @@ class AddXPCommand:
         else:
             await handle_xp_update(guild_id, self.user, self.xp, ctx.app)
             await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
+            await log_manual_xp(guild_id, ctx.user, self.user, ctx.app)
 
 
 @plugin.include
@@ -545,6 +561,7 @@ class RemoveXPCommand:
         else:
             await handle_xp_update(guild_id, self.user, -self.xp, ctx.app)
             await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
+            await log_manual_xp(guild_id, ctx.user, self.user, ctx.app)
 
 
 @plugin.include
@@ -569,6 +586,7 @@ class ResetXPCommand:
         else:
             await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
             await ctx.respond(f"Reset xp of {self.user.username}.")
+            await log_manual_xp(guild_id, ctx.user, self.user, ctx.app)
 
 
 @plugin.include

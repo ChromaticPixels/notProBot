@@ -24,5 +24,7 @@
         "Channel": 959566471539863625
     },
     "Rank Cards": {},
-    "Logging": {}
+    "Logging Channels": {
+        "Manual XP": null
+    }
 }
