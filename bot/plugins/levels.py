@@ -60,14 +60,11 @@ ids_on_cooldoWn = set()
 def get_db(id: int) -> aiosqlite.Connection | None:
     return plugin.model.main_db if id == main_guild_id else plugin.model.test_db
 
-
 def get_settings(id: int) -> dict:
     return main_settings if id == main_guild_id else test_settings
 
-
 async def get_user_roles(g_id: int, u_id: int, app: hikari.RESTAware) -> list[int]:
     return list(map(int, (await app.rest.fetch_member(g_id, u_id)).role_ids))
-
 
 async def get_next_lvl_xp(lvl: int) -> int:
     # default is `max(floor(208 / 3 * {level} - 104 / 3) + {xp}, 1)`
@@ -75,7 +72,6 @@ async def get_next_lvl_xp(lvl: int) -> int:
     # so just `max(floor(208 / 3 * {level} - 104 / 3), 1)` as default
     # and non-default later
     return max(math.floor(208 / 3 * lvl - 104 / 3), 1)
-
 
 async def get_lvl(xp: int) -> int:
     lvl = 0
@@ -85,28 +81,21 @@ async def get_lvl(xp: int) -> int:
         sum += await get_next_lvl_xp(lvl)
     return lvl
 
-
 def ceildiv(a: int, b: int) -> int:
     return -(a // -b)
-
 
 def xp_time_is_enabled(guild_id: int, i: int) -> bool:
     return (all_xp_times[i] == "alltimexp"
         or get_settings(guild_id)["Leaderboards"][all_xp_times_pretty[i]])
 
-
 async def user_xp_denied(g_id: int, c_id: int, u_id: int, app: hikari.RESTAware) -> bool:
-    settings = get_settings(g_id)
-    denylist = settings["Denylist"]
-
+    denylist = get_settings(g_id)["Denylist"]
     role_ids = await get_user_roles(g_id, u_id, app)
-
     return (
         int(c_id) in denylist["Denied Channels"]
         or len(set(role_ids) & set(denylist["Denied Roles"])) > 0
         or int(u_id) in denylist["Denied Users"]
     )
-
 
 def make_timestamp(dt: datetime) -> str:
     return dt.strftime("%Y/%m/%d %I:%M %p %Z%:z")
