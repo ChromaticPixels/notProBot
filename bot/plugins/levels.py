@@ -54,7 +54,7 @@ all_xp_times_pretty = (
 ids_on_cooldoWn = set()
 
 
-# pure functions
+# side effect free functions
 
 
 def get_db(id: int) -> aiosqlite.Connection | None:
