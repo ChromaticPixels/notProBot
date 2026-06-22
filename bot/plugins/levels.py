@@ -265,11 +265,16 @@ async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: h
         if role_lvl <= lvl and int(role_id) not in role_ids:
             await app.rest.add_role_to_member(guild_id, user, role_id)
 
-    if settings["Level Up Messages"]["Enabled"]:
-        await app.rest.create_message(
-            settings["Level Up Messages"]["Channel"],
-            f"{user.username} just leveled up to level {lvl}!"
-        )
+    channel = settings["Level Up Messages"]["Channel"]
+    if channel is not None:
+        # hardcoded for now
+        await app.rest.create_message(channel,embed=hikari.Embed(
+            description="\n".join((
+                f"### {user.username} climbed to level {lvl}",
+                "Keep it up and you *might* make it to a Nest (real)",
+                "\n:tada: :tada: :tada: :tada:"
+            ))
+        ))
 
 
 async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
