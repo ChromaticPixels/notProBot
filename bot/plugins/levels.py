@@ -240,14 +240,16 @@ async def get_lvl(xp: int) -> int:
 
 async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
     role_ids = await get_user_roles(guild_id, user.id, app)
+
+    settings = get_settings(guild_id)
     
-    for role_id, role_lvl in get_settings(guild_id)["Level Roles"].items():
+    for role_id, role_lvl in settings["Level Roles"].items():
         if role_lvl <= lvl and int(role_id) not in role_ids:
             await app.rest.add_role_to_member(guild_id, user, role_id)
 
-    if get_settings(guild_id)["Level Up Messages"]["Enabled"]:
+    if settings["Level Up Messages"]["Enabled"]:
         await app.rest.create_message(
-            get_settings(guild_id)["Level Up Messages"]["Channel"],
+            settings["Level Up Messages"]["Channel"],
             f"{user.username} just leveled up to level {lvl}!"
         )
 
@@ -255,7 +257,9 @@ async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: h
 async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
     role_ids = await get_user_roles(guild_id, user.id, app)
 
-    for role_id, role_lvl in get_settings(guild_id)["Level Roles"].items():
+    settings = get_settings(guild_id)
+
+    for role_id, role_lvl in settings["Level Roles"].items():
         if role_lvl > lvl and int(role_id) in role_ids:
             await app.rest.remove_role_from_member(guild_id, user, role_id)
 
