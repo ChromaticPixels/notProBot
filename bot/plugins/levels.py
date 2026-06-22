@@ -166,7 +166,7 @@ async def init_db(g_id: int) -> None:
         await print_db(cur)
 
 
-async def get_size_xp_db(g_id: int, xp_time: str="alltimexp") -> int:
+async def get_size_xp_db(g_id: int, xp_time: str = "alltimexp") -> int:
     assert xp_time in all_xp_times
     db = get_db(g_id)
     if db is None:
@@ -179,7 +179,7 @@ async def get_size_xp_db(g_id: int, xp_time: str="alltimexp") -> int:
     return data[0] if data else 0
 
 
-async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp") -> int:
+async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> int:
     assert xp_time in all_xp_times
     db = get_db(g_id)
     if db is None:
@@ -192,7 +192,7 @@ async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp")
     return data[0] if data else 0
 
 
-async def get_xp_db_bulk(g_id: int, page: int, xp_time: str="alltimexp") -> Iterable[Row]:
+async def get_xp_db_bulk(g_id: int, page: int, xp_time: str = "alltimexp") -> Iterable[Row]:
     db = get_db(g_id)
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
@@ -206,7 +206,7 @@ async def get_xp_db_bulk(g_id: int, page: int, xp_time: str="alltimexp") -> Iter
     return data
 
 
-async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
+async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
     assert xp_time in all_xp_times
     db = get_db(g_id)
     if db is None:
@@ -227,7 +227,7 @@ async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="al
         await print_db(cur)
 
 
-async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp") -> None:
+async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> None:
     assert xp_time in all_xp_times
     db = get_db(g_id)
     assert db is not None
@@ -241,7 +241,7 @@ async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp
         await print_db(cur)
 
 
-async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
+async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
     for xp_time in all_xp_times:
         if not xp_time_is_enabled(g_id, all_xp_times.index(xp_time)):
             continue
@@ -249,7 +249,7 @@ async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="al
         await set_xp_db(g_id, u_id, old_xp + xp, xp_time)
 
 
-async def remove_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
+async def remove_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
     for xp_time in all_xp_times:
         if not xp_time_is_enabled(g_id, all_xp_times.index(xp_time)):
             continue
