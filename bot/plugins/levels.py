@@ -50,6 +50,19 @@ def xp_time_is_enabled(guild_id: int, i: int) -> bool:
         or get_settings(guild_id)["Leaderboards"][all_xp_times_pretty[i]])
 
 
+async def user_xp_denied(g_id: int, c_id: int, u_id: int, app: hikari.RESTAware) -> bool:
+    settings = get_settings(g_id)
+    denylist = settings["Denylist"]
+
+    role_ids = await get_user_roles(g_id, u_id, app)
+
+    return (
+        int(c_id) in denylist["Denied Channels"]
+        or len(set(role_ids) & set(denylist["Denied Roles"])) > 0
+        or int(u_id) in denylist["Denied Users"]
+    )
+
+
 # currently all xp times are in one table
 # this will likely change later to one per table
 # this array will then refer to table names not column names
@@ -203,7 +216,6 @@ async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp
 
         await db.commit()
         await print_db(cur)
-    raise aiosqlite.OperationalError
 
 
 async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
@@ -277,18 +289,6 @@ async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikar
     if new_lvl < old_lvl:
         await handle_lvl_decrease(guild_id, user, new_lvl, app)
 
-async def user_xp_denied(g_id: int, c_id: int, u_id: int, app: hikari.RESTAware) -> bool:
-    settings = get_settings(g_id)
-    denylist = settings["Denylist"]
-
-    role_ids = await get_user_roles(g_id, u_id, app)
-
-    return (
-        int(c_id) in denylist["Denied Channels"]
-        or len(set(role_ids) & set(denylist["Denied Roles"])) > 0
-        or int(u_id) in denylist["Denied Users"]
-    )
-
 
 async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     user = event.message.author
@@ -331,7 +331,6 @@ async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
 
 
 async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
-    
     guild_id = event.message.guild_id
     if guild_id is None:
         raise hikari.ComponentStateConflictError("No guild id found.")
