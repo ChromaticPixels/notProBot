@@ -16,18 +16,45 @@ from sqlite3 import Row
 from bot.pprintify import pprintify
 from bot.model import Model
 
+
+# inits
+
+
 plugin = crescent.Plugin[hikari.GatewayBot, Model]()
 
 aiosqlite.register_adapter(hikari.Snowflake, lambda sf: int(sf))
-
-main_guild_id = int(os.environ["MAIN_GUILD_ID"])
-test_guild_id = int(os.environ["TEST_GUILD_ID"])
 
 with open("bot/data/main/temp_settings.json", "r") as f:
     main_settings: dict = json.load(f)
 
 with open("bot/data/test/temp_settings.json", "r") as f:
     test_settings: dict = json.load(f)
+
+main_guild_id = int(os.environ["MAIN_GUILD_ID"])
+test_guild_id = int(os.environ["TEST_GUILD_ID"])
+
+# currently all xp times are in one table
+# this will likely change later to one per table
+# this array will then refer to table names not column names
+all_xp_times = (
+    "alltimexp",
+    "monthlyxp",
+    "weeklyxp",
+    "dailyxp"
+)
+
+all_xp_times_pretty = (
+    "All Time",
+    "Monthly",
+    "Weekly",
+    "Daily"
+)
+
+# ids get added/removed on message to control xp gain per cooldown
+ids_on_cooldoWn = set()
+
+
+# pure functions
 
 
 def get_db(id: int) -> aiosqlite.Connection | None:
@@ -40,6 +67,23 @@ def get_settings(id: int) -> dict:
 
 async def get_user_roles(g_id: int, u_id: int, app: hikari.RESTAware) -> list[int]:
     return list(map(int, (await app.rest.fetch_member(g_id, u_id)).role_ids))
+
+
+async def get_next_lvl_xp(lvl: int) -> int:
+    # default is `max(floor(208 / 3 * {level} - 104 / 3) + {xp}, 1)`
+    # not going to support a lack of {xp}
+    # so just `max(floor(208 / 3 * {level} - 104 / 3), 1)` as default
+    # and non-default later
+    return max(math.floor(208 / 3 * lvl - 104 / 3), 1)
+
+
+async def get_lvl(xp: int) -> int:
+    lvl = 0
+    sum = await get_next_lvl_xp(0)
+    while sum <= xp:
+        lvl += 1
+        sum += await get_next_lvl_xp(lvl)
+    return lvl
 
 
 def ceildiv(a: int, b: int) -> int:
@@ -68,25 +112,7 @@ def make_timestamp(dt: datetime) -> str:
     return dt.strftime("%Y/%m/%d %I:%M %p %Z%:z")
 
 
-# currently all xp times are in one table
-# this will likely change later to one per table
-# this array will then refer to table names not column names
-all_xp_times = (
-    "alltimexp",
-    "monthlyxp",
-    "weeklyxp",
-    "dailyxp"
-)
-
-all_xp_times_pretty = (
-    "All Time",
-    "Monthly",
-    "Weekly",
-    "Daily"
-)
-
-# ids get added/removed on message to control xp gain per cooldown
-ids_on_cooldoWn = set()
+# classes
 
 
 class PreviousButton(menu.ScreenButton):
@@ -120,6 +146,9 @@ class ConfirmView(OriginalCrescentCtxView):
 
     async def view_check(self, ctx: miru.ViewContext) -> bool:
         return ctx.user.id == self.original_ctx.user.id
+
+
+# database functions
 
 
 async def print_db(cur: aiosqlite.Cursor) -> None:
@@ -239,21 +268,7 @@ async def remove_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str=
         await set_xp_db(g_id, u_id, max(old_xp - xp, 0), xp_time)
 
 
-async def get_next_lvl_xp(lvl: int) -> int:
-    # default is `max(floor(208 / 3 * {level} - 104 / 3) + {xp}, 1)`
-    # not going to support a lack of {xp}
-    # so just `max(floor(208 / 3 * {level} - 104 / 3), 1)` as default
-    # and non-default later
-    return max(math.floor(208 / 3 * lvl - 104 / 3), 1)
-
-
-async def get_lvl(xp: int) -> int:
-    lvl = 0
-    sum = await get_next_lvl_xp(0)
-    while sum <= xp:
-        lvl += 1
-        sum += await get_next_lvl_xp(lvl)
-    return lvl
+# handlers
 
 
 async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
@@ -328,6 +343,9 @@ async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     await event.message.respond("This Pro-flop is Pissing me off...")
 
 
+# logging
+
+
 async def log_manual_xp(guild_id: hikari.Snowflake, ctx: crescent.Context) -> None:
     channel_id = get_settings(guild_id)["Logging Channels"]["Manual XP"]
     if channel_id is None:
@@ -352,6 +370,9 @@ async def log_manual_xp(guild_id: hikari.Snowflake, ctx: crescent.Context) -> No
             description=message
         ).set_footer(make_timestamp(datetime.now(timezone.utc)))
     )
+
+
+# hooks
 
 
 async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
@@ -411,12 +432,18 @@ async def is_human_hook(event: hikari.MessageCreateEvent) -> crescent.HookResult
     return crescent.HookResult(exit=event.message.author.is_bot)
 
 
+# events
+
+
 @plugin.include
 @crescent.hook(is_human_hook)
 @crescent.hook(manage_cooldown_hook, after=True)
 @crescent.event
 async def on_message_create(event: hikari.MessageCreateEvent) -> None:
     await handle_msg_xp_gain(event)
+
+
+# commands
 
 
 @plugin.include
