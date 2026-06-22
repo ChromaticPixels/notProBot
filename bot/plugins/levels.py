@@ -3,6 +3,7 @@ import os
 import asyncio
 import json
 import math
+from datetime import datetime, timezone
 from collections.abc import Iterable
 
 import crescent
@@ -61,6 +62,10 @@ async def user_xp_denied(g_id: int, c_id: int, u_id: int, app: hikari.RESTAware)
         or len(set(role_ids) & set(denylist["Denied Roles"])) > 0
         or int(u_id) in denylist["Denied Users"]
     )
+
+
+def make_timestamp(dt: datetime) -> str:
+    return dt.strftime("%Y/%m/%d %I:%M %p %Z%:z")
 
 
 # currently all xp times are in one table
@@ -318,17 +323,29 @@ async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     await event.message.respond("This Pro-flop is Pissing me off...")
 
 
-async def log_manual_xp(guild_id: hikari.Snowflake, cmd_user: hikari.User, arg_user: hikari.User, app: hikari.RESTAware) -> None:
+async def log_manual_xp(guild_id: hikari.Snowflake, ctx: crescent.Context) -> None:
     channel_id = get_settings(guild_id)["Logging Channels"]["Manual XP"]
     if channel_id is None:
         return
+    
+    cmd_user = ctx.user
+    arg_user: hikari.User = ctx.options.get("user", ctx.user)
 
-    await app.rest.create_message(
+    print(ctx.command)
+
+    message = {
+        "set": f"{cmd_user.mention} set {arg_user.mention}'s XP to {ctx.options.get('xp')}",
+        "add": f"{cmd_user.mention} added {ctx.options.get('xp')} XP to {arg_user.mention}",
+        "remove": f"{cmd_user.mention} removed {ctx.options.get('xp')} XP from {arg_user.mention}",
+        "reset": f"{cmd_user.mention} reset {arg_user.mention}'s XP"
+    }[ctx.command]
+
+    await ctx.app.rest.create_message(
         channel_id,
         embed=hikari.Embed(
             title="Manual XP",
-            description=f"{cmd_user.mention} altered {arg_user.mention}"
-        )
+            description=message
+        ).set_footer(make_timestamp(datetime.now(timezone.utc)))
     )
 
 
@@ -450,7 +467,16 @@ class LeaderboardCommand:
         xp_time = all_xp_times[self.time]
         xp_time_pretty = all_xp_times_pretty[all_xp_times.index(xp_time)]
 
+        timestamp = make_timestamp(datetime.now(timezone.utc))
+
         max_pages = ceildiv(await get_size_xp_db(guild_id, xp_time), 10)
+        if max_pages == 0:
+            await ctx.respond(embed=hikari.Embed(
+                title=f"Leaderboard{': ' + xp_time_pretty
+                    if xp_time != 'alltimexp' else ''}",
+                description="No data for this leaderboard yet; limbillions must chat."
+            ).set_footer(timestamp))
+            return
 
         # i have not made a list comprehension like this in years okay
         # let me have this
@@ -468,7 +494,7 @@ class LeaderboardCommand:
                         )
                     )
                 ])
-            )
+            ).set_footer(timestamp)
             for page in range(1, max_pages + 1)
         ])
 
@@ -508,7 +534,7 @@ class SetXPCommand:
         else:
             await handle_xp_update(guild_id, self.user, self.xp - old_xp, ctx.app)
             await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
-            await log_manual_xp(guild_id, ctx.user, self.user, ctx.app)
+            await log_manual_xp(guild_id, ctx)
 
 
 @plugin.include
@@ -533,7 +559,7 @@ class AddXPCommand:
         else:
             await handle_xp_update(guild_id, self.user, self.xp, ctx.app)
             await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
-            await log_manual_xp(guild_id, ctx.user, self.user, ctx.app)
+            await log_manual_xp(guild_id, ctx)
 
 
 @plugin.include
@@ -561,7 +587,7 @@ class RemoveXPCommand:
         else:
             await handle_xp_update(guild_id, self.user, -self.xp, ctx.app)
             await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
-            await log_manual_xp(guild_id, ctx.user, self.user, ctx.app)
+            await log_manual_xp(guild_id, ctx)
 
 
 @plugin.include
@@ -586,7 +612,7 @@ class ResetXPCommand:
         else:
             await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
             await ctx.respond(f"Reset xp of {self.user.username}.")
-            await log_manual_xp(guild_id, ctx.user, self.user, ctx.app)
+            await log_manual_xp(guild_id, ctx)
 
 
 @plugin.include
