@@ -203,6 +203,7 @@ async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str="alltimexp
 
         await db.commit()
         await print_db(cur)
+    raise aiosqlite.OperationalError
 
 
 async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str="alltimexp") -> None:
@@ -487,10 +488,13 @@ class SetXPCommand:
         
         old_xp = await get_xp_db(guild_id, self.user.id)
 
-        await set_xp_db(guild_id, self.user.id, self.xp)
-        await handle_xp_update(guild_id, self.user, self.xp - old_xp, ctx.app)
-
-        await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
+        try:
+            await set_xp_db(guild_id, self.user.id, self.xp)
+        except aiosqlite.OperationalError:
+            await ctx.respond("Something went wrong updating the data.", ephemeral=True)
+        else:
+            await handle_xp_update(guild_id, self.user, self.xp - old_xp, ctx.app)
+            await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
 
 
 @plugin.include
@@ -508,10 +512,13 @@ class AddXPCommand:
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
-        await add_xp_db(guild_id, self.user.id, self.xp)
-        await handle_xp_update(guild_id, self.user, self.xp, ctx.app)
-
-        await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
+        try:
+            await add_xp_db(guild_id, self.user.id, self.xp)
+        except aiosqlite.OperationalError:
+            await ctx.respond("Something went wrong updating the data.", ephemeral=True)
+        else:
+            await handle_xp_update(guild_id, self.user, self.xp, ctx.app)
+            await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
 
 
 @plugin.include
@@ -529,10 +536,16 @@ class RemoveXPCommand:
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
-        await remove_xp_db(guild_id, self.user.id, self.xp)
-        await handle_xp_update(guild_id, self.user, -self.xp, ctx.app)
-
-        await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
+        try:
+            await remove_xp_db(guild_id, self.user.id, self.xp)
+        except aiosqlite.OperationalError:
+            await ctx.respond(
+                "Something went wrong updating the data.",
+                ephemeral=True
+            )
+        else:
+            await handle_xp_update(guild_id, self.user, -self.xp, ctx.app)
+            await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
 
 
 @plugin.include
@@ -550,11 +563,13 @@ class ResetXPCommand:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
         old_xp = await get_xp_db(guild_id, self.user.id)
-        
-        await reset_xp_db(guild_id, self.user.id)
-        await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
-        
-        await ctx.respond(f"Reset xp of {self.user.username}.")
+        try:
+            await reset_xp_db(guild_id, self.user.id)
+        except aiosqlite.OperationalError:
+            await ctx.respond("Something went wrong updating the data.", ephemeral=True)
+        else:
+            await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
+            await ctx.respond(f"Reset xp of {self.user.username}.")
 
 
 @plugin.include
