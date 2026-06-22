@@ -317,11 +317,16 @@ async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     await event.message.respond("This Pro-flop is Pissing me off...")
 
 
-async def handle_is_bot_xp(id: hikari.Snowflake, ctx: crescent.Context) -> None:
-    if id == ctx.application_id:
+async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
+    user = ctx.options.get("user", ctx.user) or ctx.user
+    if not user.is_bot:
+        return crescent.HookResult()
+
+    if user.id == ctx.application_id:
         await ctx.respond("~~Someday~~ I mean what?")
-        return
-    await ctx.respond("We bots don't earn xp...")
+    else:
+        await ctx.respond("We bots don't earn xp...")
+    return crescent.HookResult(exit=True)
 
 
 async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
@@ -379,6 +384,7 @@ async def on_message_create(event: hikari.MessageCreateEvent) -> None:
 
 
 @plugin.include
+@crescent.hook(is_bot_xp_hook)
 @crescent.command(
     name="rank",
     description="check rank & xp of user"
@@ -388,9 +394,6 @@ class CheckXPCommand:
 
     async def callback(self, ctx: crescent.Context) -> None:
         user = self.user or ctx.user
-        if user.is_bot:
-            await handle_is_bot_xp(user.id, ctx)
-            return
         
         guild_id = ctx.guild_id
         if guild_id is None:
@@ -460,7 +463,11 @@ class LeaderboardCommand:
         miru_client.start_view(lb_nav)
 
 
-xp_group = crescent.Group(name="xp", description="xp management commands")
+xp_group = crescent.Group(
+    name="xp",
+    description="xp management commands",
+    hooks=[is_bot_xp_hook]
+)
 
 
 @plugin.include
@@ -474,10 +481,6 @@ class SetXPCommand:
     xp = crescent.option(int, "xp amount to set")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        if self.user.is_bot:
-            await handle_is_bot_xp(self.user.id, ctx)
-            return
-        
         guild_id = ctx.guild_id
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
@@ -501,10 +504,6 @@ class AddXPCommand:
     xp = crescent.option(int, "xp amount to add")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        if self.user.is_bot:
-            await handle_is_bot_xp(self.user.id, ctx)
-            return
-        
         guild_id = ctx.guild_id
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
@@ -526,10 +525,6 @@ class RemoveXPCommand:
     xp = crescent.option(int, "xp amount to remove")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        if self.user.is_bot:
-            await handle_is_bot_xp(self.user.id, ctx)
-            return
-        
         guild_id = ctx.guild_id
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
@@ -550,10 +545,6 @@ class ResetXPCommand:
     user = crescent.option(hikari.User, "user to reset xp of")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        if self.user.is_bot:
-            await handle_is_bot_xp(self.user.id, ctx)
-            return
-        
         guild_id = ctx.guild_id
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
