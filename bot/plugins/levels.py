@@ -5,13 +5,13 @@ import json
 import math
 from datetime import datetime, timezone
 from collections.abc import Iterable
+from sqlite3 import Row
 
 import crescent
 import hikari
 import miru
 import aiosqlite
 from miru.ext import menu, nav
-from sqlite3 import Row
 
 from bot.pprintify import pprintify
 from bot.model import Model
