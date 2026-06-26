@@ -115,7 +115,7 @@ async def make_rank_card(g_id: int, u_id, xp: int, lvl: int, app: hikari.RESTAwa
     xp_progress = xp - sum([(await get_next_lvl_xp(i)) for i in range(0, lvl)])
     progress = xp_progress / next_lvl_xp
 
-    style = xp_bar_styles[2]
+    style = xp_bar_styles[1]
 
     num_sizes = len(style)
     length = 36
