@@ -50,6 +50,13 @@ all_xp_times_pretty = (
     "Daily"
 )
 
+xp_bar_styles = (
+    "⣀⣄⣤⣦⣶⣷⣿", # 30
+    "░▒▓█", # 36
+    "▱▰", # 22
+    "▯▮" # 22
+)
+
 # ids get added/removed on message to control xp gain per cooldown
 ids_on_cooldoWn = set()
 
@@ -67,11 +74,11 @@ async def get_user_roles(g_id: int, u_id: int, app: hikari.RESTAware) -> list[in
     return list(map(int, (await app.rest.fetch_member(g_id, u_id)).role_ids))
 
 async def get_next_lvl_xp(lvl: int) -> int:
-    # default is `max(floor(208 / 3 * {level} - 104 / 3) + {xp}, 1)`
+    # default is `floor(208 / 3 * {level} - 104 / 3) + {xp}`
     # not going to support a lack of {xp}
-    # so just `max(floor(208 / 3 * {level} - 104 / 3), 1)` as default
+    # so just `floor(208 / 3 * lvl + 104 / 3)` as default
     # and non-default later
-    return max(math.floor(208 / 3 * lvl - 104 / 3), 1)
+    return math.floor(208 / 3 * lvl + 104 / 3)
 
 async def get_lvl(xp: int) -> int:
     lvl = 0
@@ -99,6 +106,43 @@ async def user_xp_denied(g_id: int, c_id: int, u_id: int, app: hikari.RESTAware)
 
 def make_timestamp(dt: datetime) -> str:
     return dt.strftime("%Y/%m/%d %I:%M %p %Z%:z")
+
+async def make_rank_card(g_id: int, u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
+    user = await app.rest.fetch_member(g_id, u_id)
+    rank = await get_rank(g_id, u_id)
+
+    next_lvl_xp = await get_next_lvl_xp(lvl)
+    xp_progress = xp - sum([(await get_next_lvl_xp(i)) for i in range(0, lvl)])
+    progress = xp_progress / next_lvl_xp
+
+    style = xp_bar_styles[3]
+
+    num_sizes = len(style)
+    length = 22
+    total_divisions = (num_sizes - 1) * length
+
+    available_divisions = math.floor(progress * total_divisions)
+    xp_bar = ""
+    xp_bar = (
+        style[num_sizes - 1] * (available_divisions // num_sizes)
+        + style[available_divisions % num_sizes]
+        + style[0] * (length - (available_divisions // num_sizes + 1))
+    )
+    
+    nick = user.nickname or user.display_name
+
+    return "\n".join([
+        "```",
+        "⠀",
+        f"  {(nick[:25] + '...') if len(nick) > 25 else nick}  ",
+        f"  @{user.username}  ",
+        "⠀",
+        f"  {lvl} {xp_bar} {lvl + 1}  ",
+        "⠀",
+        f"  {xp} / {xp + next_lvl_xp - xp_progress} XP  ·  RANK #{rank}  ",
+        "⠀",
+        "```"
+    ])
 
 
 # classes
@@ -204,6 +248,21 @@ async def get_xp_db_bulk(g_id: int, page: int, xp_time: str = "alltimexp") -> It
             LIMIT 10 OFFSET 10 * ?
         """, (page - 1,))).fetchall()
     return data
+
+
+async def get_rank(g_id: int, u_id: int) -> int:
+    db = get_db(g_id)
+    if db is None:
+        raise aiosqlite.DatabaseError("No database found.")
+    async with db.cursor() as cur:
+        data = await (await cur.execute(f"""
+            SELECT rn FROM (
+                SELECT *, ROW_NUMBER()
+                OVER (ORDER BY alltimexp DESC) rn
+                FROM levels
+            ) WHERE id = ?
+        """, (u_id,))).fetchone()
+    return data[0] if data else 0
 
 
 async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
@@ -458,6 +517,10 @@ class CheckXPCommand:
             raise hikari.ComponentStateConflictError("No guild id found.")
 
         xp = await get_xp_db(guild_id, user.id)
+        lvl = await get_lvl(xp)
+
+        await ctx.respond(hikari.Embed(description=await make_rank_card(guild_id, user.id, xp, lvl, ctx.app)))
+        return
         if xp == 0:
             await ctx.respond(f"{user.username}, you don't have any xp yet.")
         else:
