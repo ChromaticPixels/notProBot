@@ -50,13 +50,6 @@ all_xp_times_pretty = (
     "Daily"
 )
 
-xp_bar_styles = (
-    "⣀⣄⣤⣦⣶⣷⣿", # 30
-    "░▒▓█", # 36
-    "▱▰", # 22
-    "▯▮" # 22
-)
-
 # ids get added/removed on message to control xp gain per cooldown
 ids_on_cooldoWn = set()
 
@@ -115,18 +108,18 @@ async def make_rank_card(g_id: int, u_id, xp: int, lvl: int, app: hikari.RESTAwa
     xp_progress = xp - sum([(await get_next_lvl_xp(i)) for i in range(0, lvl)])
     progress = xp_progress / next_lvl_xp
 
-    style = xp_bar_styles[1]
+    style = "░▒▓█"
 
-    num_sizes = len(style)
+    num_states = len(style)
     length = 36
-    total_divisions = (num_sizes - 1) * length
+    total_divisions = (num_states - 1) * length
 
     available_divisions = math.floor(progress * total_divisions)
     xp_bar = ""
     xp_bar = (
-        style[num_sizes - 1] * (available_divisions // num_sizes)
-        + style[available_divisions % num_sizes]
-        + style[0] * (length - (available_divisions // num_sizes + 1))
+        style[num_states - 1] * (available_divisions // num_states)
+        + style[available_divisions % num_states]
+        + style[0] * (length - (available_divisions // num_states + 1))
     )
     
     nick = user.nickname or user.display_name
