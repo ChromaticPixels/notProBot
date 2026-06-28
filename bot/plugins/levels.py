@@ -107,7 +107,7 @@ async def make_rank_card(g_id: int, u_id, xp: int, lvl: int, app: hikari.RESTAwa
     xp_progress = xp - sum([(await get_next_lvl_xp(i)) for i in range(0, lvl)])
 
     # consider making these external constants
-    style = ("░","▒","▓","█")
+    style = ("░", "▒", "▓", "█")
     num_states = len(style)
     length = 36
     total_divisions = (num_states - 1) * length
@@ -399,8 +399,6 @@ async def log_manual_xp(guild_id: hikari.Snowflake, ctx: crescent.Context) -> No
     cmd_user = ctx.user
     arg_user: hikari.User = ctx.options.get("user", ctx.user)
 
-    print(ctx.command)
-
     message = {
         "set": f"{cmd_user.mention} set {arg_user.mention}'s XP to {ctx.options.get('xp')}",
         "add": f"{cmd_user.mention} added {ctx.options.get('xp')} XP to {arg_user.mention}",
@@ -512,11 +510,6 @@ class CheckXPCommand:
 
         await ctx.respond(hikari.Embed(description=await make_rank_card(guild_id, user.id, xp, lvl, ctx.app)))
         return
-        if xp == 0:
-            await ctx.respond(f"{user.username}, you don't have any xp yet.")
-        else:
-            lvl = await get_lvl(xp)
-            await ctx.respond(f"{user.username}, you have {xp} xp and are level {lvl}.")
 
 
 @plugin.include
@@ -602,20 +595,17 @@ class SetXPCommand:
     xp = crescent.option(int, "xp amount to set")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        guild_id = ctx.guild_id
-        if guild_id is None:
-            raise hikari.ComponentStateConflictError("No guild id found.")
-        
-        old_xp = await get_xp_db(guild_id, self.user.id)
+        assert ctx.guild_id is not None
+        old_xp = await get_xp_db(ctx.guild_id, self.user.id)
 
         try:
-            await set_xp_db(guild_id, self.user.id, self.xp)
+            await set_xp_db(ctx.guild_id, self.user.id, self.xp)
         except aiosqlite.OperationalError:
             await ctx.respond("Something went wrong updating the data.", ephemeral=True)
         else:
-            await handle_xp_update(guild_id, self.user, self.xp - old_xp, ctx.app)
+            await handle_xp_update(ctx.guild_id, self.user, self.xp - old_xp, ctx.app)
             await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
-            await log_manual_xp(guild_id, ctx)
+            await log_manual_xp(ctx.guild_id, ctx)
 
 
 @plugin.include
@@ -629,18 +619,15 @@ class AddXPCommand:
     xp = crescent.option(int, "xp amount to add")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        guild_id = ctx.guild_id
-        if guild_id is None:
-            raise hikari.ComponentStateConflictError("No guild id found.")
-        
+        assert ctx.guild_id is not None
         try:
-            await add_xp_db(guild_id, self.user.id, self.xp)
+            await add_xp_db(ctx.guild_id, self.user.id, self.xp)
         except aiosqlite.OperationalError:
             await ctx.respond("Something went wrong updating the data.", ephemeral=True)
         else:
-            await handle_xp_update(guild_id, self.user, self.xp, ctx.app)
+            await handle_xp_update(ctx.guild_id, self.user, self.xp, ctx.app)
             await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
-            await log_manual_xp(guild_id, ctx)
+            await log_manual_xp(ctx.guild_id, ctx)
 
 
 @plugin.include
@@ -654,21 +641,18 @@ class RemoveXPCommand:
     xp = crescent.option(int, "xp amount to remove")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        guild_id = ctx.guild_id
-        if guild_id is None:
-            raise hikari.ComponentStateConflictError("No guild id found.")
-        
+        assert ctx.guild_id is not None
         try:
-            await remove_xp_db(guild_id, self.user.id, self.xp)
+            await remove_xp_db(ctx.guild_id, self.user.id, self.xp)
         except aiosqlite.OperationalError:
             await ctx.respond(
                 "Something went wrong updating the data.",
                 ephemeral=True
             )
         else:
-            await handle_xp_update(guild_id, self.user, -self.xp, ctx.app)
+            await handle_xp_update(ctx.guild_id, self.user, -self.xp, ctx.app)
             await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
-            await log_manual_xp(guild_id, ctx)
+            await log_manual_xp(ctx.guild_id, ctx)
 
 
 @plugin.include
@@ -681,19 +665,16 @@ class ResetXPCommand:
     user = crescent.option(hikari.User, "user to reset xp of")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        guild_id = ctx.guild_id
-        if guild_id is None:
-            raise hikari.ComponentStateConflictError("No guild id found.")
-        
-        old_xp = await get_xp_db(guild_id, self.user.id)
+        assert ctx.guild_id is not None
+        old_xp = await get_xp_db(ctx.guild_id, self.user.id)
         try:
-            await reset_xp_db(guild_id, self.user.id)
+            await reset_xp_db(ctx.guild_id, self.user.id)
         except aiosqlite.OperationalError:
             await ctx.respond("Something went wrong updating the data.", ephemeral=True)
         else:
-            await handle_xp_update(guild_id, self.user, -old_xp, ctx.app)
+            await handle_xp_update(ctx.guild_id, self.user, -old_xp, ctx.app)
             await ctx.respond(f"Reset xp of {self.user.username}.")
-            await log_manual_xp(guild_id, ctx)
+            await log_manual_xp(ctx.guild_id, ctx)
 
 
 @plugin.include
@@ -701,15 +682,13 @@ class ResetXPCommand:
 @crescent.command(
     name="init",
     description="removes all level data & creates a new level storage",
+    context_types=[hikari.ApplicationContextType.GUILD],
     default_member_permissions=hikari.Permissions.ADMINISTRATOR
 )
 async def init_guild_xp(ctx: crescent.Context) -> None:
-    guild_id = ctx.guild_id
-    if guild_id is None:
-        raise hikari.ComponentStateConflictError("No guild id found.")
-
+    assert ctx.guild_id is not None
     await ctx.edit("Initializing...")
-    await init_db(guild_id)
+    await init_db(ctx.guild_id)
 
     await asyncio.sleep(1)
 

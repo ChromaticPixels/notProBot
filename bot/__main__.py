@@ -22,11 +22,17 @@ async def unhandled_comp_hook(inter: hikari.ComponentInteraction) -> None:
         flags=hikari.MessageFlag.EPHEMERAL
     )
 
+async def is_guild_command_hook(ctx: crescent.Context):
+    if ctx.interaction.context != hikari.ApplicationContextType.GUILD:
+        await ctx.respond("DMs? I don't know... that's scary...")
+        return crescent.HookResult(exit=True)
+    return crescent.HookResult()
+
 miru_client = miru.Client(bot)
 miru_client.set_unhandled_component_interaction_hook(unhandled_comp_hook)
 model = Model(bot, miru_client)
 
-client = crescent.Client(bot, model)
+client = crescent.Client(bot, model, command_hooks=[is_guild_command_hook])
 client.plugins.load_folder("bot.plugins")
 
 bot.subscribe(hikari.StartingEvent, model.on_start)
