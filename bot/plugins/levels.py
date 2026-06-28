@@ -103,25 +103,23 @@ def make_timestamp(dt: datetime) -> str:
 async def make_rank_card(g_id: int, u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     user = await app.rest.fetch_member(g_id, u_id)
     rank = await get_rank(g_id, u_id)
-
     next_lvl_xp = await get_next_lvl_xp(lvl)
     xp_progress = xp - sum([(await get_next_lvl_xp(i)) for i in range(0, lvl)])
-    progress = xp_progress / next_lvl_xp
 
-    style = "░▒▓█"
-
+    # consider making these external constants
+    style = ("░","▒","▓","█")
     num_states = len(style)
     length = 36
     total_divisions = (num_states - 1) * length
 
-    available_divisions = math.floor(progress * total_divisions)
-    xp_bar = ""
+    progress = xp_progress / next_lvl_xp
+    divisions_left = math.floor(progress * total_divisions)
+    full_states_left = divisions_left // num_states
     xp_bar = (
-        style[num_states - 1] * (available_divisions // num_states)
-        + style[available_divisions % num_states]
-        + style[0] * (length - (available_divisions // num_states + 1))
+        style[num_states - 1] * full_states_left
+        + style[divisions_left % num_states]
+        + style[0] * (length - (full_states_left + 1))
     )
-    
     nick = user.nickname or user.display_name
 
     return "\n".join([
