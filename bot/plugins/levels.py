@@ -30,25 +30,49 @@ with open("bot/data/main/temp_settings.json", "r") as f:
 with open("bot/data/test/temp_settings.json", "r") as f:
     test_settings: dict = json.load(f)
 
-main_guild_id = int(os.environ["MAIN_GUILD_ID"])
-test_guild_id = int(os.environ["TEST_GUILD_ID"])
+MAIN_GUILD_ID = int(os.environ["MAIN_GUILD_ID"])
+TEST_GUILD_ID = int(os.environ["TEST_GUILD_ID"])
 
 # currently all xp times are in one table
 # this will likely change later to one per table
 # this array will then refer to table names not column names
-all_xp_times = (
+ALL_XP_TIMES = (
     "alltimexp",
     "monthlyxp",
     "weeklyxp",
     "dailyxp"
 )
 
-all_xp_times_pretty = (
+ALL_XP_TIMES_PRETTY = (
     "All Time",
     "Monthly",
     "Weekly",
     "Daily"
 )
+
+ANSI_KEY = {
+    "Normal": "0",
+    "Bold": "1",
+    "Underline": "4",
+    "Gray Text": "30",
+    "Red Text": "31",
+    "Green Text": "32",
+    "Yellow Text": "33",
+    "Blue Text": "34",
+    "Pink Text": "35",
+    "Cyan Text": "36",
+    "White Text": "37",
+    "Black BG": "40",
+    "Red BG": "41",
+    "Green BG": "42",
+    "Yellow BG": "43",
+    "Blue BG": "44",
+    "Pink BG": "45",
+    "Cyan BG": "46",
+    "White BG": "47"
+}
+
+ESC_CHAR = ""
 
 # ids get added/removed on message to control xp gain per cooldown
 ids_on_cooldoWn = set()
@@ -57,11 +81,14 @@ ids_on_cooldoWn = set()
 # side effect free functions
 
 
+def ceildiv(a: int, b: int) -> int:
+    return -(a // -b)
+
 def get_db(id: int) -> aiosqlite.Connection | None:
-    return plugin.model.main_db if id == main_guild_id else plugin.model.test_db
+    return plugin.model.main_db if id == MAIN_GUILD_ID else plugin.model.test_db
 
 def get_settings(id: int) -> dict:
-    return main_settings if id == main_guild_id else test_settings
+    return main_settings if id == MAIN_GUILD_ID else test_settings
 
 async def get_user_roles(g_id: int, u_id: int, app: hikari.RESTAware) -> list[int]:
     return list(map(int, (await app.rest.fetch_member(g_id, u_id)).role_ids))
@@ -81,12 +108,9 @@ async def get_lvl(xp: int) -> int:
         sum += await get_next_lvl_xp(lvl)
     return lvl
 
-def ceildiv(a: int, b: int) -> int:
-    return -(a // -b)
-
 def xp_time_is_enabled(guild_id: int, i: int) -> bool:
-    return (all_xp_times[i] == "alltimexp"
-        or get_settings(guild_id)["Leaderboards"][all_xp_times_pretty[i]])
+    return (ALL_XP_TIMES[i] == "alltimexp"
+        or get_settings(guild_id)["Leaderboards"][ALL_XP_TIMES_PRETTY[i]])
 
 async def user_xp_denied(g_id: int, c_id: int, u_id: int, app: hikari.RESTAware) -> bool:
     denylist = get_settings(g_id)["Denylist"]
@@ -95,6 +119,12 @@ async def user_xp_denied(g_id: int, c_id: int, u_id: int, app: hikari.RESTAware)
         int(c_id) in denylist["Denied Channels"]
         or len(set(role_ids) & set(denylist["Denied Roles"])) > 0
         or int(u_id) in denylist["Denied Users"]
+    )
+
+def make_ansi(txt: str, styles: list[str] = []) -> str:
+    return (
+        f"{ESC_CHAR}[{';'.join([ANSI_KEY[style] for style in (styles or ["Normal"])])}m"
+        + txt + f"{ESC_CHAR}[0m"
     )
 
 def make_timestamp(dt: datetime) -> str:
@@ -115,20 +145,36 @@ async def make_rank_card(g_id: int, u_id, xp: int, lvl: int, app: hikari.RESTAwa
     progress = xp_progress / next_lvl_xp
     divisions_left = math.floor(progress * total_divisions)
     full_states_left = divisions_left // num_states
+    remainder = divisions_left % num_states
     xp_bar = (
-        style[num_states - 1] * full_states_left
-        + style[divisions_left % num_states]
-        + style[0] * (length - (full_states_left + 1))
+        make_ansi(
+            style[num_states - 1] * full_states_left
+            + style[remainder] if remainder else "",
+            ["Blue Text"]
+        ) + style[0] * (length - (full_states_left + int(remainder > 0)))
     )
+    
     nick = user.nickname or user.display_name
 
     return "\n".join([
-        "```",
+        "```ansi",
         "⠀",
-        f"  {(nick[:25] + '...') if len(nick) > 25 else nick}  ",
-        f"  @{user.username}  ",
+        f"  {make_ansi(
+            (nick[:25] + '...') if len(nick) > 25 else nick,
+            ["Bold"]
+        )}  ",
+        f"  {make_ansi(
+            '@' + user.username,
+            ["White Text"]
+        )}  ",
         "⠀",
-        f"  {lvl} {xp_bar} {lvl + 1}  ",
+        f"  {make_ansi(
+            str(lvl),
+            ["Bold", "Blue Text"]
+        )} {xp_bar} {make_ansi(
+            str(lvl + 1),
+            ["Bold", "White Text"]
+        )}  ",
         "⠀",
         f"  {xp} / {xp + next_lvl_xp - xp_progress} XP  ·  RANK #{rank}  ",
         "⠀",
@@ -193,7 +239,7 @@ async def init_db(g_id: int) -> None:
         await cur.execute(f"""
             CREATE TABLE levels (
                 id INTEGER PRIMARY KEY,
-                {' INTEGER,'.join(all_xp_times)} INTEGER
+                {' INTEGER,'.join(ALL_XP_TIMES)} INTEGER
             );
         """)
 
@@ -202,7 +248,7 @@ async def init_db(g_id: int) -> None:
 
 
 async def get_size_xp_db(g_id: int, xp_time: str = "alltimexp") -> int:
-    assert xp_time in all_xp_times
+    assert xp_time in ALL_XP_TIMES
     db = get_db(g_id)
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
@@ -215,7 +261,7 @@ async def get_size_xp_db(g_id: int, xp_time: str = "alltimexp") -> int:
 
 
 async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> int:
-    assert xp_time in all_xp_times
+    assert xp_time in ALL_XP_TIMES
     db = get_db(g_id)
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
@@ -257,14 +303,14 @@ async def get_rank(g_id: int, u_id: int) -> int:
 
 
 async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
-    assert xp_time in all_xp_times
+    assert xp_time in ALL_XP_TIMES
     db = get_db(g_id)
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         await cur.execute(f"""
-            INSERT INTO levels(id, {', '.join(all_xp_times)}) 
-            SELECT ?, {', '.join(['0'] * len(all_xp_times))}
+            INSERT INTO levels(id, {', '.join(ALL_XP_TIMES)}) 
+            SELECT ?, {', '.join(['0'] * len(ALL_XP_TIMES))}
             WHERE NOT EXISTS(SELECT 1 FROM levels WHERE id = ?)
         """, (u_id, u_id))
         await cur.execute(f"""
@@ -278,7 +324,7 @@ async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "
 
 
 async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> None:
-    assert xp_time in all_xp_times
+    assert xp_time in ALL_XP_TIMES
     db = get_db(g_id)
     assert db is not None
     async with db.cursor() as cur:
@@ -292,16 +338,16 @@ async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltime
 
 
 async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
-    for xp_time in all_xp_times:
-        if not xp_time_is_enabled(g_id, all_xp_times.index(xp_time)):
+    for xp_time in ALL_XP_TIMES:
+        if not xp_time_is_enabled(g_id, ALL_XP_TIMES.index(xp_time)):
             continue
         old_xp = await get_xp_db(g_id, u_id, xp_time)
         await set_xp_db(g_id, u_id, old_xp + xp, xp_time)
 
 
 async def remove_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
-    for xp_time in all_xp_times:
-        if not xp_time_is_enabled(g_id, all_xp_times.index(xp_time)):
+    for xp_time in ALL_XP_TIMES:
+        if not xp_time_is_enabled(g_id, ALL_XP_TIMES.index(xp_time)):
             continue
         old_xp = await get_xp_db(g_id, u_id, xp_time)
         await set_xp_db(g_id, u_id, max(old_xp - xp, 0), xp_time)
@@ -521,7 +567,7 @@ class LeaderboardCommand:
     time = crescent.option(
         int, "time period to view xp for",
         default=0,
-        choices=[(xp_time, i) for i, xp_time in enumerate(all_xp_times_pretty)]
+        choices=[(xp_time, i) for i, xp_time in enumerate(ALL_XP_TIMES_PRETTY)]
     )
 
     async def callback(self, ctx: crescent.Context) -> None:
@@ -538,8 +584,8 @@ class LeaderboardCommand:
 
         rest = ctx.app.rest
 
-        xp_time = all_xp_times[self.time]
-        xp_time_pretty = all_xp_times_pretty[all_xp_times.index(xp_time)]
+        xp_time = ALL_XP_TIMES[self.time]
+        xp_time_pretty = ALL_XP_TIMES_PRETTY[ALL_XP_TIMES.index(xp_time)]
 
         timestamp = make_timestamp(datetime.now(timezone.utc))
 
