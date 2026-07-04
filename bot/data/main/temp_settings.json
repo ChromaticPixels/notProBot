@@ -20,9 +20,10 @@
         "1517650914641576066": 1
     },
     "Level Up Messages": {
-        "Enabled": true,
         "Channel": 959566471539863625
     },
     "Rank Cards": {},
-    "Logging": {}
+    "Logging Channels": {
+        "Manual XP": 959566471539863625
+    }
 }

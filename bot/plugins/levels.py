@@ -11,6 +11,7 @@ import crescent
 import hikari
 import miru
 import aiosqlite
+from crescent.ext import tasks
 from miru.ext import menu, nav
 
 from bot.pprintify import pprintify
@@ -33,9 +34,6 @@ with open("bot/data/test/temp_settings.json", "r") as f:
 MAIN_GUILD_ID = int(os.environ["MAIN_GUILD_ID"])
 TEST_GUILD_ID = int(os.environ["TEST_GUILD_ID"])
 
-# currently all xp times are in one table
-# this will likely change later to one per table
-# this array will then refer to table names not column names
 ALL_XP_TIMES = (
     "alltimexp",
     "monthlyxp",
@@ -221,30 +219,30 @@ class ConfirmView(OriginalCrescentCtxView):
 # database functions
 
 
-async def print_db(cur: aiosqlite.Cursor) -> None:
-    data = await cur.execute("""
-        SELECT * FROM levels
+async def print_db(cur: aiosqlite.Cursor, xp_time: str = "alltimexp") -> None:
+    data = await cur.execute(f"""
+        SELECT * FROM {xp_time}
     """)
     print(await data.fetchall())
 
 
-async def init_db(g_id: int) -> None:
+async def init_table_db(g_id: int, xp_time: str = "alltimexp") -> None:
     db = get_db(g_id)
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
-        await cur.execute("""
-            DROP TABLE IF EXISTS levels
+        await cur.execute(f"""
+            DROP TABLE IF EXISTS {xp_time}
         """)
         await cur.execute(f"""
-            CREATE TABLE levels (
+            CREATE TABLE {xp_time} (
                 id INTEGER PRIMARY KEY,
-                {' INTEGER,'.join(ALL_XP_TIMES)} INTEGER
+                xp INTEGER
             );
         """)
 
         await db.commit()
-        await print_db(cur)
+        await print_db(cur, xp_time=xp_time)
 
 
 async def get_size_xp_db(g_id: int, xp_time: str = "alltimexp") -> int:
@@ -254,8 +252,8 @@ async def get_size_xp_db(g_id: int, xp_time: str = "alltimexp") -> int:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         data = await (await cur.execute(f"""
-            SELECT COUNT(*) FROM levels
-            WHERE {xp_time} > 0
+            SELECT COUNT(*) FROM {xp_time}
+            WHERE xp > 0
         """)).fetchone()
     return data[0] if data else 0
 
@@ -267,7 +265,7 @@ async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltimexp
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         data = await (await cur.execute(f"""
-            SELECT {xp_time} FROM levels
+            SELECT xp FROM {xp_time}
             WHERE id = ?
         """, (u_id,))).fetchone()
     return data[0] if data else 0
@@ -279,9 +277,9 @@ async def get_xp_db_bulk(g_id: int, page: int, xp_time: str = "alltimexp") -> It
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         data = await (await cur.execute(f"""
-            SELECT id, {xp_time} FROM levels
-            WHERE {xp_time} > 0
-            ORDER BY {xp_time} DESC
+            SELECT id, xp FROM {xp_time}
+            WHERE xp > 0
+            ORDER BY xp DESC
             LIMIT 10 OFFSET 10 * ?
         """, (page - 1,))).fetchall()
     return data
@@ -295,8 +293,8 @@ async def get_rank(g_id: int, u_id: int) -> int:
         data = await (await cur.execute(f"""
             SELECT rn FROM (
                 SELECT *, ROW_NUMBER()
-                OVER (ORDER BY alltimexp DESC) rn
-                FROM levels
+                OVER (ORDER BY xp DESC) rn
+                FROM alltimexp
             ) WHERE id = ?
         """, (u_id,))).fetchone()
     return data[0] if data else 0
@@ -309,13 +307,13 @@ async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
         await cur.execute(f"""
-            INSERT INTO levels(id, {', '.join(ALL_XP_TIMES)}) 
-            SELECT ?, {', '.join(['0'] * len(ALL_XP_TIMES))}
-            WHERE NOT EXISTS(SELECT 1 FROM levels WHERE id = ?)
+            INSERT INTO {xp_time}(id, xp) 
+            SELECT ?, 0
+            WHERE NOT EXISTS(SELECT 1 FROM {xp_time} WHERE id = ?)
         """, (u_id, u_id))
         await cur.execute(f"""
-            UPDATE levels
-            SET {xp_time} = ?
+            UPDATE {xp_time}
+            SET xp = ?
             WHERE id = ?
         """, (xp, u_id))
 
@@ -329,7 +327,7 @@ async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltime
     assert db is not None
     async with db.cursor() as cur:
         await cur.execute(f"""
-            DELETE FROM levels
+            DELETE FROM {xp_time}
             WHERE id = ?
         """, (u_id,))
 
@@ -358,7 +356,6 @@ async def remove_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str 
 
 async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
     role_ids = await get_user_roles(guild_id, user.id, app)
-
     settings = get_settings(guild_id)
     
     for role_id, role_lvl in settings["Level Roles"].items():
@@ -382,7 +379,6 @@ async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: h
 
 async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
     role_ids = await get_user_roles(guild_id, user.id, app)
-
     settings = get_settings(guild_id)
 
     for role_id, role_lvl in settings["Level Roles"].items():
@@ -396,12 +392,10 @@ async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: h
 async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikari.RESTAware) -> None:
     new_xp = await get_xp_db(guild_id, user.id)
     new_lvl = await get_lvl(new_xp)
-
     old_lvl = await get_lvl(new_xp - xp)
 
     if new_lvl > old_lvl:
         await handle_lvl_increase(guild_id, user, new_lvl, app)
-    
     if new_lvl < old_lvl:
         await handle_lvl_decrease(guild_id, user, new_lvl, app)
 
@@ -492,9 +486,7 @@ async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
 
 async def confirmation_hook(ctx: crescent.Context) -> crescent.HookResult:
     await ctx.respond("Waiting for confirmation...")
-    
     view = ConfirmView(ctx, timeout=15.0)
-
     confirm = await ctx.respond(
         "Are you sure? **This cannot be undone.**",
         components=view,
@@ -503,13 +495,11 @@ async def confirmation_hook(ctx: crescent.Context) -> crescent.HookResult:
 
     miru_client = ctx.client.model.miru_client
     assert isinstance(miru_client, miru.Client)
-
     miru_client.start_view(view)
     await view.wait_for_input()
 
     if confirm is not None:
         await confirm.delete()
-
     result = view.result or crescent.HookResult(exit=True)
     if result.exit:
         await ctx.delete()
@@ -531,6 +521,13 @@ async def is_human_hook(event: hikari.MessageCreateEvent) -> crescent.HookResult
 async def on_message_create(event: hikari.MessageCreateEvent) -> None:
     await handle_msg_xp_gain(event)
 
+'''
+# scheduled tasks
+
+
+@plugin.include
+@tasks.cronjob()
+'''
 
 # commands
 
@@ -545,12 +542,11 @@ class CheckXPCommand:
     user = crescent.option(hikari.User, "user to check rank & xp of", default=None)
 
     async def callback(self, ctx: crescent.Context) -> None:
-        user = self.user or ctx.user
-        
         guild_id = ctx.guild_id
         if guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
-
+        
+        user = self.user or ctx.user
         xp = await get_xp_db(guild_id, user.id)
         lvl = await get_lvl(xp)
 
@@ -583,10 +579,8 @@ class LeaderboardCommand:
         assert isinstance(miru_client, miru.Client)
 
         rest = ctx.app.rest
-
         xp_time = ALL_XP_TIMES[self.time]
         xp_time_pretty = ALL_XP_TIMES_PRETTY[ALL_XP_TIMES.index(xp_time)]
-
         timestamp = make_timestamp(datetime.now(timezone.utc))
 
         max_pages = ceildiv(await get_size_xp_db(guild_id, xp_time), 10)
@@ -734,8 +728,12 @@ class ResetXPCommand:
 async def init_guild_xp(ctx: crescent.Context) -> None:
     assert ctx.guild_id is not None
     await ctx.edit("Initializing...")
-    await init_db(ctx.guild_id)
+    for xp_time in ALL_XP_TIMES:
+        try:
+            await init_table_db(ctx.guild_id, xp_time)
+        except aiosqlite.OperationalError:
+            await ctx.edit(f"Something went wrong creating the {ALL_XP_TIMES_PRETTY[ALL_XP_TIMES.index(xp_time)]} storage.")
+            return
 
     await asyncio.sleep(1)
-
     await ctx.edit("Blank level storage created.")
