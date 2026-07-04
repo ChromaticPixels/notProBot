@@ -219,14 +219,39 @@ class ConfirmView(OriginalCrescentCtxView):
 # database functions
 
 
-async def print_db(cur: aiosqlite.Cursor, xp_time: str = "alltimexp") -> None:
-    data = await cur.execute(f"""
-        SELECT * FROM {xp_time}
-    """)
-    print(await data.fetchall())
+async def print_db(cur: aiosqlite.Cursor) -> None:
+    for xp_time in ALL_XP_TIMES:
+        data = await cur.execute(f"""
+            SELECT * FROM {xp_time}
+        """)
+        print(await data.fetchall())
+
+    print(await (await cur.execute(f"""
+        SELECT * FROM times
+    """)).fetchall())
+    
 
 
-async def init_table_db(g_id: int, xp_time: str = "alltimexp") -> None:
+async def log_xp_table_db(g_id: int, xp_time: str) -> None:
+    db = get_db(g_id)
+    if db is None:
+        raise aiosqlite.DatabaseError("No database found.")
+    async with db.cursor() as cur:
+        await cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS times (
+                xptime TEXT PRIMARY KEY,
+                created TIMESTAMP
+            );
+        """)
+        await cur.execute(f"""
+            INSERT OR REPLACE INTO times(xptime, created)
+            VALUES(?, ?)
+        """, (xp_time, datetime.now(timezone.utc)))
+
+        await db.commit()
+
+
+async def init_xp_table_db(g_id: int, xp_time: str) -> None:
     db = get_db(g_id)
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
@@ -240,12 +265,13 @@ async def init_table_db(g_id: int, xp_time: str = "alltimexp") -> None:
                 xp INTEGER
             );
         """)
+        await log_xp_table_db(g_id, xp_time)
 
         await db.commit()
-        await print_db(cur, xp_time=xp_time)
+        await print_db(cur)
 
 
-async def get_size_xp_db(g_id: int, xp_time: str = "alltimexp") -> int:
+async def get_size_xp_db(g_id: int, xp_time: str) -> int:
     assert xp_time in ALL_XP_TIMES
     db = get_db(g_id)
     if db is None:
@@ -271,7 +297,7 @@ async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltimexp
     return data[0] if data else 0
 
 
-async def get_xp_db_bulk(g_id: int, page: int, xp_time: str = "alltimexp") -> Iterable[Row]:
+async def get_xp_db_bulk(g_id: int, page: int, xp_time: str) -> Iterable[Row]:
     db = get_db(g_id)
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
@@ -730,7 +756,7 @@ async def init_guild_xp(ctx: crescent.Context) -> None:
     await ctx.edit("Initializing...")
     for xp_time in ALL_XP_TIMES:
         try:
-            await init_table_db(ctx.guild_id, xp_time)
+            await init_xp_table_db(ctx.guild_id, xp_time)
         except aiosqlite.OperationalError:
             await ctx.edit(f"Something went wrong creating the {ALL_XP_TIMES_PRETTY[ALL_XP_TIMES.index(xp_time)]} storage.")
             return
