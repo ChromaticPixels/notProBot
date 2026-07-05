@@ -231,7 +231,6 @@ async def print_db(cur: aiosqlite.Cursor) -> None:
     """)).fetchall())
     
 
-
 async def log_xp_table_db(g_id: int, xp_time: str) -> None:
     db = get_db(g_id)
     if db is None:
@@ -269,6 +268,27 @@ async def init_xp_table_db(g_id: int, xp_time: str) -> None:
 
         await db.commit()
         await print_db(cur)
+
+
+async def get_time_xp_db(g_id: int, xp_time: str) -> datetime | None:
+    assert xp_time in ALL_XP_TIMES
+    db = get_db(g_id)
+    if db is None:
+        raise aiosqlite.DatabaseError("No database found.")
+    async with db.cursor() as cur:
+        await cur.execute(f"""
+            CREATE TABLE IF NOT EXISTS times (
+                xptime TEXT PRIMARY KEY,
+                created TIMESTAMP
+            );
+        """)
+        await db.commit()
+
+        data = await (await cur.execute(f"""
+            SELECT created FROM times
+            WHERE xptime = ?
+        """, (xp_time,))).fetchone()
+    return datetime.fromisoformat(data[0]) if data else None
 
 
 async def get_size_xp_db(g_id: int, xp_time: str) -> int:
@@ -547,13 +567,21 @@ async def is_human_hook(event: hikari.MessageCreateEvent) -> crescent.HookResult
 async def on_message_create(event: hikari.MessageCreateEvent) -> None:
     await handle_msg_xp_gain(event)
 
-'''
+
 # scheduled tasks
 
 
 @plugin.include
-@tasks.cronjob()
-'''
+@tasks.cronjob("* * * * *", on_startup=True)
+async def reset_daily_xp() -> None:
+    for guild_id in (MAIN_GUILD_ID, TEST_GUILD_ID):
+        print(guild_id)
+        last_reset = await get_time_xp_db(guild_id, "dailyxp")
+        if last_reset is not None and datetime.now(timezone.utc).date() != last_reset.date():
+            continue
+        await init_xp_table_db(guild_id, "dailyxp")
+        print("reset daily")
+
 
 # commands
 
