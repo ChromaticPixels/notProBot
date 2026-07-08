@@ -84,19 +84,19 @@ def ceildiv(a: int, b: int) -> int:
 async def get_user_roles(u_id: int, app: hikari.RESTAware) -> list[int]:
     return list(map(int, (await app.rest.fetch_member(GUILD_ID, u_id)).role_ids))
 
-async def get_next_lvl_xp(lvl: int) -> int:
+def get_next_lvl_xp(lvl: int) -> int:
     # default is `floor(208 / 3 * {level} - 104 / 3) + {xp}`
     # not going to support a lack of {xp}
     # so just `floor(208 / 3 * lvl + 104 / 3)` as default
     # and non-default later
     return math.floor(208 / 3 * lvl + 104 / 3)
 
-async def get_lvl(xp: int) -> int:
+def get_lvl(xp: int) -> int:
     lvl = 0
-    sum = await get_next_lvl_xp(0)
+    sum = get_next_lvl_xp(0)
     while sum <= xp:
         lvl += 1
-        sum += await get_next_lvl_xp(lvl)
+        sum += get_next_lvl_xp(lvl)
     return lvl
 
 def xp_time_is_enabled(i: int) -> bool:
@@ -124,8 +124,8 @@ def make_timestamp(dt: datetime) -> str:
 async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     user = await app.rest.fetch_member(GUILD_ID, u_id)
     rank = await get_rank(u_id)
-    next_lvl_xp = await get_next_lvl_xp(lvl)
-    xp_progress = xp - sum([(await get_next_lvl_xp(i)) for i in range(0, lvl)])
+    next_lvl_xp = get_next_lvl_xp(lvl)
+    xp_progress = xp - sum([get_next_lvl_xp(i) for i in range(0, lvl)])
 
     # consider making these external constants
     style = ("░", "▒", "▓", "█")
@@ -428,8 +428,8 @@ async def handle_lvl_decrease(user: hikari.User, lvl: int, app: hikari.RESTAware
 
 async def handle_xp_update(user: hikari.User, xp: int, app: hikari.RESTAware) -> None:
     new_xp = await get_xp_db(user.id)
-    new_lvl = await get_lvl(new_xp)
-    old_lvl = await get_lvl(new_xp - xp)
+    new_lvl = get_lvl(new_xp)
+    old_lvl = get_lvl(new_xp - xp)
 
     if new_lvl > old_lvl:
         await handle_lvl_increase(user, new_lvl, app)
@@ -589,7 +589,7 @@ class CheckXPCommand:
         
         user = self.user or ctx.user
         xp = await get_xp_db(user.id)
-        lvl = await get_lvl(xp)
+        lvl = get_lvl(xp)
 
         await ctx.respond(hikari.Embed(description=await make_rank_card(user.id, xp, lvl, ctx.app)))
         return
@@ -641,7 +641,7 @@ class LeaderboardCommand:
                 description="\n".join([
                     f"{(page - 1) * 10 + i + 1}. {
                         (await rest.fetch_user(id)).mention
-                    } · Level {await get_lvl(xp)} · {xp} XP"
+                    } · Level {get_lvl(xp)} · {xp} XP"
                     for i, (id, xp) in enumerate(
                         await get_xp_db_bulk(
                             page, xp_time
