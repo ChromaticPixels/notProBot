@@ -18,21 +18,9 @@ from bot.pprintify import pprintify
 from bot.model import Model
 
 
-# inits
+# consts
 
-
-plugin = crescent.Plugin[hikari.GatewayBot, Model]()
-
-aiosqlite.register_adapter(hikari.Snowflake, lambda sf: int(sf))
-
-with open("bot/data/main/temp_settings.json", "r") as f:
-    main_settings: dict = json.load(f)
-
-with open("bot/data/test/temp_settings.json", "r") as f:
-    test_settings: dict = json.load(f)
-
-MAIN_GUILD_ID = int(os.environ["MAIN_GUILD_ID"])
-TEST_GUILD_ID = int(os.environ["TEST_GUILD_ID"])
+GUILD_ID = int(os.environ["GUILD_ID"])
 
 ALL_XP_TIMES = (
     "alltimexp",
@@ -72,6 +60,17 @@ ANSI_KEY = {
 
 ESC_CHAR = ""
 
+
+# inits
+
+
+plugin = crescent.Plugin[hikari.GatewayBot, Model]()
+
+aiosqlite.register_adapter(hikari.Snowflake, lambda sf: int(sf))
+
+with open("bot/data/temp_settings.json", "r") as f:
+    settings: dict = json.load(f)
+
 # ids get added/removed on message to control xp gain per cooldown
 ids_on_cooldoWn = set()
 
@@ -82,14 +81,8 @@ ids_on_cooldoWn = set()
 def ceildiv(a: int, b: int) -> int:
     return -(a // -b)
 
-def get_db(id: int) -> aiosqlite.Connection | None:
-    return plugin.model.main_db if id == MAIN_GUILD_ID else plugin.model.test_db
-
-def get_settings(id: int) -> dict:
-    return main_settings if id == MAIN_GUILD_ID else test_settings
-
-async def get_user_roles(g_id: int, u_id: int, app: hikari.RESTAware) -> list[int]:
-    return list(map(int, (await app.rest.fetch_member(g_id, u_id)).role_ids))
+async def get_user_roles(u_id: int, app: hikari.RESTAware) -> list[int]:
+    return list(map(int, (await app.rest.fetch_member(GUILD_ID, u_id)).role_ids))
 
 async def get_next_lvl_xp(lvl: int) -> int:
     # default is `floor(208 / 3 * {level} - 104 / 3) + {xp}`
@@ -106,13 +99,13 @@ async def get_lvl(xp: int) -> int:
         sum += await get_next_lvl_xp(lvl)
     return lvl
 
-def xp_time_is_enabled(guild_id: int, i: int) -> bool:
+def xp_time_is_enabled(i: int) -> bool:
     return (ALL_XP_TIMES[i] == "alltimexp"
-        or get_settings(guild_id)["Leaderboards"][ALL_XP_TIMES_PRETTY[i]])
+        or settings["Leaderboards"][ALL_XP_TIMES_PRETTY[i]])
 
-async def user_xp_denied(g_id: int, c_id: int, u_id: int, app: hikari.RESTAware) -> bool:
-    denylist = get_settings(g_id)["Denylist"]
-    role_ids = await get_user_roles(g_id, u_id, app)
+async def user_xp_denied(c_id: int, u_id: int, app: hikari.RESTAware) -> bool:
+    denylist = settings["Denylist"]
+    role_ids = await get_user_roles(u_id, app)
     return (
         int(c_id) in denylist["Denied Channels"]
         or len(set(role_ids) & set(denylist["Denied Roles"])) > 0
@@ -128,9 +121,9 @@ def make_ansi(txt: str, styles: list[str] = []) -> str:
 def make_timestamp(dt: datetime) -> str:
     return dt.strftime("%Y/%m/%d %I:%M %p %Z%:z")
 
-async def make_rank_card(g_id: int, u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
-    user = await app.rest.fetch_member(g_id, u_id)
-    rank = await get_rank(g_id, u_id)
+async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
+    user = await app.rest.fetch_member(GUILD_ID, u_id)
+    rank = await get_rank(u_id)
     next_lvl_xp = await get_next_lvl_xp(lvl)
     xp_progress = xp - sum([(await get_next_lvl_xp(i)) for i in range(0, lvl)])
 
@@ -231,8 +224,8 @@ async def print_db(cur: aiosqlite.Cursor) -> None:
     """)).fetchall())
     
 
-async def log_xp_table_db(g_id: int, xp_time: str) -> None:
-    db = get_db(g_id)
+async def log_xp_table_db(xp_time: str) -> None:
+    db = plugin.model.db
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
@@ -250,8 +243,8 @@ async def log_xp_table_db(g_id: int, xp_time: str) -> None:
         await db.commit()
 
 
-async def init_xp_table_db(g_id: int, xp_time: str) -> None:
-    db = get_db(g_id)
+async def init_xp_table_db(xp_time: str) -> None:
+    db = plugin.model.db
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
@@ -264,15 +257,15 @@ async def init_xp_table_db(g_id: int, xp_time: str) -> None:
                 xp INTEGER
             );
         """)
-        await log_xp_table_db(g_id, xp_time)
+        await log_xp_table_db(xp_time)
 
         await db.commit()
         await print_db(cur)
 
 
-async def get_time_xp_db(g_id: int, xp_time: str) -> datetime | None:
+async def get_time_xp_db(xp_time: str) -> datetime | None:
     assert xp_time in ALL_XP_TIMES
-    db = get_db(g_id)
+    db = plugin.model.db
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
@@ -291,9 +284,9 @@ async def get_time_xp_db(g_id: int, xp_time: str) -> datetime | None:
     return datetime.fromisoformat(data[0]) if data else None
 
 
-async def get_size_xp_db(g_id: int, xp_time: str) -> int:
+async def get_size_xp_db(xp_time: str) -> int:
     assert xp_time in ALL_XP_TIMES
-    db = get_db(g_id)
+    db = plugin.model.db
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
@@ -304,9 +297,9 @@ async def get_size_xp_db(g_id: int, xp_time: str) -> int:
     return data[0] if data else 0
 
 
-async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> int:
+async def get_xp_db(u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> int:
     assert xp_time in ALL_XP_TIMES
-    db = get_db(g_id)
+    db = plugin.model.db
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
@@ -317,8 +310,8 @@ async def get_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltimexp
     return data[0] if data else 0
 
 
-async def get_xp_db_bulk(g_id: int, page: int, xp_time: str) -> Iterable[Row]:
-    db = get_db(g_id)
+async def get_xp_db_bulk(page: int, xp_time: str) -> Iterable[Row]:
+    db = plugin.model.db
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
@@ -331,8 +324,8 @@ async def get_xp_db_bulk(g_id: int, page: int, xp_time: str) -> Iterable[Row]:
     return data
 
 
-async def get_rank(g_id: int, u_id: int) -> int:
-    db = get_db(g_id)
+async def get_rank(u_id: int) -> int:
+    db = plugin.model.db
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
@@ -346,9 +339,9 @@ async def get_rank(g_id: int, u_id: int) -> int:
     return data[0] if data else 0
 
 
-async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
+async def set_xp_db(u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
     assert xp_time in ALL_XP_TIMES
-    db = get_db(g_id)
+    db = plugin.model.db
     if db is None:
         raise aiosqlite.DatabaseError("No database found.")
     async with db.cursor() as cur:
@@ -367,9 +360,9 @@ async def set_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "
         await print_db(cur)
 
 
-async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> None:
+async def reset_xp_db(u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> None:
     assert xp_time in ALL_XP_TIMES
-    db = get_db(g_id)
+    db = plugin.model.db
     assert db is not None
     async with db.cursor() as cur:
         await cur.execute(f"""
@@ -381,33 +374,32 @@ async def reset_xp_db(g_id: int, u_id: hikari.Snowflake, xp_time: str = "alltime
         await print_db(cur)
 
 
-async def add_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
+async def add_xp_db(u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
     for xp_time in ALL_XP_TIMES:
-        if not xp_time_is_enabled(g_id, ALL_XP_TIMES.index(xp_time)):
+        if not xp_time_is_enabled(ALL_XP_TIMES.index(xp_time)):
             continue
-        old_xp = await get_xp_db(g_id, u_id, xp_time)
-        await set_xp_db(g_id, u_id, old_xp + xp, xp_time)
+        old_xp = await get_xp_db(u_id, xp_time)
+        await set_xp_db(u_id, old_xp + xp, xp_time)
 
 
-async def remove_xp_db(g_id: int, u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
+async def remove_xp_db(u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
     for xp_time in ALL_XP_TIMES:
-        if not xp_time_is_enabled(g_id, ALL_XP_TIMES.index(xp_time)):
+        if not xp_time_is_enabled(ALL_XP_TIMES.index(xp_time)):
             continue
-        old_xp = await get_xp_db(g_id, u_id, xp_time)
-        await set_xp_db(g_id, u_id, max(old_xp - xp, 0), xp_time)
+        old_xp = await get_xp_db(u_id, xp_time)
+        await set_xp_db(u_id, max(old_xp - xp, 0), xp_time)
 
 
 # handlers
 
 
-async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
-    role_ids = await get_user_roles(guild_id, user.id, app)
-    settings = get_settings(guild_id)
+async def handle_lvl_increase(user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
+    role_ids = await get_user_roles(user.id, app)
     
     for role_id, role_lvl in settings["Level Roles"].items():
         if role_lvl <= lvl and int(role_id) not in role_ids:
             await app.rest.add_role_to_member(
-                guild_id, user, role_id,
+                GUILD_ID, user, role_id,
                 reason=f"Level up to {lvl}\n (≥ Level {role_lvl})"
             )
 
@@ -423,49 +415,47 @@ async def handle_lvl_increase(guild_id: int, user: hikari.User, lvl: int, app: h
         ))
 
 
-async def handle_lvl_decrease(guild_id: int, user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
-    role_ids = await get_user_roles(guild_id, user.id, app)
-    settings = get_settings(guild_id)
+async def handle_lvl_decrease(user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
+    role_ids = await get_user_roles(user.id, app)
 
     for role_id, role_lvl in settings["Level Roles"].items():
         if role_lvl > lvl and int(role_id) in role_ids:
             await app.rest.remove_role_from_member(
-                guild_id, user, role_id,
+                GUILD_ID, user, role_id,
                 reason=f"Level down to {lvl}\n (< Reward Level {role_lvl})"
             )
 
 
-async def handle_xp_update(guild_id: int, user: hikari.User, xp: int, app: hikari.RESTAware) -> None:
-    new_xp = await get_xp_db(guild_id, user.id)
+async def handle_xp_update(user: hikari.User, xp: int, app: hikari.RESTAware) -> None:
+    new_xp = await get_xp_db(user.id)
     new_lvl = await get_lvl(new_xp)
     old_lvl = await get_lvl(new_xp - xp)
 
     if new_lvl > old_lvl:
-        await handle_lvl_increase(guild_id, user, new_lvl, app)
+        await handle_lvl_increase(user, new_lvl, app)
     if new_lvl < old_lvl:
-        await handle_lvl_decrease(guild_id, user, new_lvl, app)
+        await handle_lvl_decrease(user, new_lvl, app)
 
 
 async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
-    user = event.message.author
-    if user.id in ids_on_cooldoWn:
-        return
-    
-    guild_id = event.message.guild_id
-    if guild_id is None:
+    if event.message.guild_id is None:
         raise hikari.ComponentStateConflictError("No guild id found.")
 
-    if await user_xp_denied(guild_id, event.message.channel_id, user.id, event.app):
+    user = event.message.author
+    if (
+        user.id in ids_on_cooldoWn
+        or await user_xp_denied(event.message.channel_id, user.id, event.app)
+    ):
         return
 
-    calculation = get_settings(guild_id)["Calculation"]
+    calculation = settings["Calculation"]
     xp = random.randint(
         calculation["Minimum XP"],
         calculation["Maximum XP"]
     )
 
-    await add_xp_db(guild_id, user.id, xp)
-    await handle_xp_update(guild_id, user, xp, event.app)
+    await add_xp_db(user.id, xp)
+    await handle_xp_update(user, xp, event.app)
 
     # currently for testing
     # possibly make ephemeral as a prod feature?
@@ -477,8 +467,8 @@ async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
 # logging
 
 
-async def log_manual_xp(guild_id: hikari.Snowflake, ctx: crescent.Context) -> None:
-    channel_id = get_settings(guild_id)["Logging Channels"]["Manual XP"]
+async def log_manual_xp(ctx: crescent.Context) -> None:
+    channel_id = settings["Logging Channels"]["Manual XP"]
     if channel_id is None:
         return
     
@@ -517,16 +507,15 @@ async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
 
 
 async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
-    guild_id = event.message.guild_id
-    if guild_id is None:
+    if event.message.guild_id is None:
         raise hikari.ComponentStateConflictError("No guild id found.")
     
     user = event.message.author
-    if user.id in ids_on_cooldoWn or await user_xp_denied(guild_id, event.message.channel_id, user.id, event.app):
+    if user.id in ids_on_cooldoWn or await user_xp_denied(event.message.channel_id, user.id, event.app):
         return
     
     ids_on_cooldoWn.add(user.id)
-    await asyncio.sleep(get_settings(int(guild_id))["Calculation"]["Cooldown"])
+    await asyncio.sleep(settings["Calculation"]["Cooldown"])
     ids_on_cooldoWn.remove(user.id)
 
 
@@ -573,14 +562,13 @@ async def on_message_create(event: hikari.MessageCreateEvent) -> None:
 
 @plugin.include
 @tasks.cronjob("* * * * *", on_startup=True)
-async def reset_daily_xp() -> None:
-    for guild_id in (MAIN_GUILD_ID, TEST_GUILD_ID):
-        print(guild_id)
-        last_reset = await get_time_xp_db(guild_id, "dailyxp")
-        if last_reset is not None and datetime.now(timezone.utc).date() != last_reset.date():
-            continue
-        await init_xp_table_db(guild_id, "dailyxp")
-        print("reset daily")
+async def reset_xp_task() -> None:
+    print(GUILD_ID)
+    last_reset = await get_time_xp_db("dailyxp")
+    if last_reset is not None and datetime.now(timezone.utc).date() != last_reset.date():
+        return
+    await init_xp_table_db("dailyxp")
+    print("reset daily")
 
 
 # commands
@@ -596,15 +584,14 @@ class CheckXPCommand:
     user = crescent.option(hikari.User, "user to check rank & xp of", default=None)
 
     async def callback(self, ctx: crescent.Context) -> None:
-        guild_id = ctx.guild_id
-        if guild_id is None:
+        if ctx.guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
         user = self.user or ctx.user
-        xp = await get_xp_db(guild_id, user.id)
+        xp = await get_xp_db(user.id)
         lvl = await get_lvl(xp)
 
-        await ctx.respond(hikari.Embed(description=await make_rank_card(guild_id, user.id, xp, lvl, ctx.app)))
+        await ctx.respond(hikari.Embed(description=await make_rank_card(user.id, xp, lvl, ctx.app)))
         return
 
 
@@ -621,11 +608,10 @@ class LeaderboardCommand:
     )
 
     async def callback(self, ctx: crescent.Context) -> None:
-        guild_id = ctx.guild_id
-        if guild_id is None:
+        if ctx.guild_id is None:
             raise hikari.ComponentStateConflictError("No guild id found.")
         
-        if not xp_time_is_enabled(guild_id, self.time):
+        if not xp_time_is_enabled(self.time):
             await ctx.respond("This leaderboard is disabled.", ephemeral=True)
             return
 
@@ -637,7 +623,7 @@ class LeaderboardCommand:
         xp_time_pretty = ALL_XP_TIMES_PRETTY[ALL_XP_TIMES.index(xp_time)]
         timestamp = make_timestamp(datetime.now(timezone.utc))
 
-        max_pages = ceildiv(await get_size_xp_db(guild_id, xp_time), 10)
+        max_pages = ceildiv(await get_size_xp_db(xp_time), 10)
         if max_pages == 0:
             await ctx.respond(embed=hikari.Embed(
                 title=f"Leaderboard{': ' + xp_time_pretty
@@ -658,7 +644,7 @@ class LeaderboardCommand:
                     } · Level {await get_lvl(xp)} · {xp} XP"
                     for i, (id, xp) in enumerate(
                         await get_xp_db_bulk(
-                            guild_id, page, xp_time
+                            page, xp_time
                         )
                     )
                 ])
@@ -690,16 +676,16 @@ class SetXPCommand:
 
     async def callback(self, ctx: crescent.Context) -> None:
         assert ctx.guild_id is not None
-        old_xp = await get_xp_db(ctx.guild_id, self.user.id)
+        old_xp = await get_xp_db(self.user.id)
 
         try:
-            await set_xp_db(ctx.guild_id, self.user.id, self.xp)
+            await set_xp_db(self.user.id, self.xp)
         except aiosqlite.OperationalError:
             await ctx.respond("Something went wrong updating the data.", ephemeral=True)
         else:
-            await handle_xp_update(ctx.guild_id, self.user, self.xp - old_xp, ctx.app)
+            await handle_xp_update(self.user, self.xp - old_xp, ctx.app)
             await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
-            await log_manual_xp(ctx.guild_id, ctx)
+            await log_manual_xp(ctx)
 
 
 @plugin.include
@@ -715,13 +701,13 @@ class AddXPCommand:
     async def callback(self, ctx: crescent.Context) -> None:
         assert ctx.guild_id is not None
         try:
-            await add_xp_db(ctx.guild_id, self.user.id, self.xp)
+            await add_xp_db(self.user.id, self.xp)
         except aiosqlite.OperationalError:
             await ctx.respond("Something went wrong updating the data.", ephemeral=True)
         else:
-            await handle_xp_update(ctx.guild_id, self.user, self.xp, ctx.app)
+            await handle_xp_update(self.user, self.xp, ctx.app)
             await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
-            await log_manual_xp(ctx.guild_id, ctx)
+            await log_manual_xp(ctx)
 
 
 @plugin.include
@@ -737,16 +723,16 @@ class RemoveXPCommand:
     async def callback(self, ctx: crescent.Context) -> None:
         assert ctx.guild_id is not None
         try:
-            await remove_xp_db(ctx.guild_id, self.user.id, self.xp)
+            await remove_xp_db(self.user.id, self.xp)
         except aiosqlite.OperationalError:
             await ctx.respond(
                 "Something went wrong updating the data.",
                 ephemeral=True
             )
         else:
-            await handle_xp_update(ctx.guild_id, self.user, -self.xp, ctx.app)
+            await handle_xp_update(self.user, -self.xp, ctx.app)
             await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
-            await log_manual_xp(ctx.guild_id, ctx)
+            await log_manual_xp(ctx)
 
 
 @plugin.include
@@ -760,15 +746,15 @@ class ResetXPCommand:
 
     async def callback(self, ctx: crescent.Context) -> None:
         assert ctx.guild_id is not None
-        old_xp = await get_xp_db(ctx.guild_id, self.user.id)
+        old_xp = await get_xp_db(self.user.id)
         try:
-            await reset_xp_db(ctx.guild_id, self.user.id)
+            await reset_xp_db(self.user.id)
         except aiosqlite.OperationalError:
             await ctx.respond("Something went wrong updating the data.", ephemeral=True)
         else:
-            await handle_xp_update(ctx.guild_id, self.user, -old_xp, ctx.app)
+            await handle_xp_update(self.user, -old_xp, ctx.app)
             await ctx.respond(f"Reset xp of {self.user.username}.")
-            await log_manual_xp(ctx.guild_id, ctx)
+            await log_manual_xp(ctx)
 
 
 @plugin.include
@@ -784,7 +770,7 @@ async def init_guild_xp(ctx: crescent.Context) -> None:
     await ctx.edit("Initializing...")
     for xp_time in ALL_XP_TIMES:
         try:
-            await init_xp_table_db(ctx.guild_id, xp_time)
+            await init_xp_table_db(xp_time)
         except aiosqlite.OperationalError:
             await ctx.edit(f"Something went wrong creating the {ALL_XP_TIMES_PRETTY[ALL_XP_TIMES.index(xp_time)]} storage.")
             return
