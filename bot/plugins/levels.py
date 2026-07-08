@@ -140,7 +140,7 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     xp_bar = (
         make_ansi(
             style[num_states - 1] * full_states_left
-            + style[remainder] if remainder else "",
+            + (style[remainder] if remainder else ""),
             ["Blue Text"]
         ) + style[0] * (length - (full_states_left + int(remainder > 0)))
     )
