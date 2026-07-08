@@ -219,29 +219,6 @@ async def print_db(cur: aiosqlite.Cursor) -> None:
         """)
         print(await data.fetchall())
 
-    print(await (await cur.execute(f"""
-        SELECT * FROM times
-    """)).fetchall())
-    
-
-async def log_xp_table_db(xp_time: str) -> None:
-    db = plugin.model.db
-    if db is None:
-        raise aiosqlite.DatabaseError("No database found.")
-    async with db.cursor() as cur:
-        await cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS times (
-                xptime TEXT PRIMARY KEY,
-                created TIMESTAMP
-            );
-        """)
-        await cur.execute(f"""
-            INSERT OR REPLACE INTO times(xptime, created)
-            VALUES(?, ?)
-        """, (xp_time, datetime.now(timezone.utc)))
-
-        await db.commit()
-
 
 async def init_xp_table_db(xp_time: str) -> None:
     db = plugin.model.db
@@ -257,31 +234,11 @@ async def init_xp_table_db(xp_time: str) -> None:
                 xp INTEGER
             );
         """)
-        await log_xp_table_db(xp_time)
+        with open("bot/data/last_table_reset.txt", "w") as f:
+            f.write(str(datetime.timestamp(datetime.now(timezone.utc))))
 
         await db.commit()
         await print_db(cur)
-
-
-async def get_time_xp_db(xp_time: str) -> datetime | None:
-    assert xp_time in ALL_XP_TIMES
-    db = plugin.model.db
-    if db is None:
-        raise aiosqlite.DatabaseError("No database found.")
-    async with db.cursor() as cur:
-        await cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS times (
-                xptime TEXT PRIMARY KEY,
-                created TIMESTAMP
-            );
-        """)
-        await db.commit()
-
-        data = await (await cur.execute(f"""
-            SELECT created FROM times
-            WHERE xptime = ?
-        """, (xp_time,))).fetchone()
-    return datetime.fromisoformat(data[0]) if data else None
 
 
 async def get_size_xp_db(xp_time: str) -> int:
@@ -564,8 +521,11 @@ async def on_message_create(event: hikari.MessageCreateEvent) -> None:
 @tasks.cronjob("* * * * *", on_startup=True)
 async def reset_xp_task() -> None:
     print(GUILD_ID)
-    last_reset = await get_time_xp_db("dailyxp")
-    if last_reset is not None and datetime.now(timezone.utc).date() != last_reset.date():
+    with open("bot/data/last_table_reset.txt", "r") as f:
+        ts = f.read()
+        last_table_reset = datetime.fromtimestamp(float(ts), timezone.utc) if ts else None
+        
+    if last_table_reset is not None and datetime.now(timezone.utc).date() != last_table_reset.date():
         return
     await init_xp_table_db("dailyxp")
     print("reset daily")
