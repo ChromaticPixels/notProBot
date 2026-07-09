@@ -14,7 +14,8 @@
     "Leaderboards": {
         "Monthly": true,
         "Weekly": false,
-        "Daily": false
+        "Daily": false,
+        "Start Week On Monday": false
     },
     "Level Roles": {
         "1517650914641576066": 1

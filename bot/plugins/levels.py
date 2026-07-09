@@ -3,7 +3,7 @@ import os
 import asyncio
 import json
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from collections.abc import Iterable
 from sqlite3 import Row
 
@@ -520,15 +520,24 @@ async def on_message_create(event: hikari.MessageCreateEvent) -> None:
 @plugin.include
 @tasks.cronjob("* * * * *", on_startup=True)
 async def reset_xp_task() -> None:
-    print(GUILD_ID)
     with open("bot/data/last_table_reset.txt", "r") as f:
         ts = f.read()
-        last_table_reset = datetime.fromtimestamp(float(ts), timezone.utc) if ts else None
-        
-    if last_table_reset is not None and datetime.now(timezone.utc).date() != last_table_reset.date():
-        return
-    await init_xp_table_db("dailyxp")
-    print("reset daily")
+        last_reset = datetime.fromtimestamp(float(ts), timezone.utc) if ts else None
+    now = datetime.now(timezone.utc)
+    monday_week = int(settings["Leaderboards"]["Start Week On Monday"])
+    
+    if last_reset is None or now.date() > last_reset.date():
+        await init_xp_table_db("dailyxp")
+        print("reset daily")
+    if last_reset is None or now.date() > last_reset.date() - timedelta(
+        days = (last_reset.isoweekday() - monday_week) % 7 - (now.isoweekday() - monday_week) % 7
+    ):
+        await init_xp_table_db("weeklyxp")
+        print("reset weekly")
+    if last_reset is None or now.date().replace(day=1) > last_reset.date().replace(day=1):
+        await init_xp_table_db("monthlyxp")
+        print("reset monthly")
+    print("reset task done")
 
 
 # commands
