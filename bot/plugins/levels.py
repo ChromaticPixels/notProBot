@@ -31,6 +31,7 @@ ALL_XP_TIMES = (
 
 ALL_XP_TIMES_PRETTY = (
     "All Time",
+    "Yearly",
     "Monthly",
     "Weekly",
     "Daily"
@@ -537,6 +538,9 @@ async def reset_xp_task() -> None:
     if last_reset is None or now.date().replace(day=1) > last_reset.date().replace(day=1):
         await init_xp_table_db("monthlyxp")
         print("reset monthly")
+    if last_reset is None or now.date().year > last_reset.date().year:
+        await init_xp_table_db("yearlyxp")
+        print("reset yearly")
     print("reset task done")
 
 

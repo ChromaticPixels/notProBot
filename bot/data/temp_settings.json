@@ -12,6 +12,7 @@
         "Denied Users": []
     },
     "Leaderboards": {
+        "Yearly": false,
         "Monthly": true,
         "Weekly": false,
         "Daily": false,
