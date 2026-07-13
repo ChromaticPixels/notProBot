@@ -24,6 +24,7 @@ GUILD_ID = int(os.environ["GUILD_ID"])
 
 ALL_XP_TIMES = (
     "alltimexp",
+    "yearlyxp",
     "monthlyxp",
     "weeklyxp",
     "dailyxp"
