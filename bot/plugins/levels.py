@@ -92,6 +92,9 @@ def get_next_lvl_xp(lvl: int) -> int:
     # and non-default later
     return math.floor(208 / 3 * lvl + 104 / 3)
 
+def get_xp_for_lvl(lvl: int) -> int:
+    return sum([get_next_lvl_xp(i) for i in range(0, lvl)])
+
 def get_lvl(xp: int) -> int:
     lvl = 0
     sum = get_next_lvl_xp(0)
@@ -126,7 +129,7 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     user = await app.rest.fetch_member(GUILD_ID, u_id)
     rank = await get_rank(u_id)
     next_lvl_xp = get_next_lvl_xp(lvl)
-    xp_progress = xp - sum([get_next_lvl_xp(i) for i in range(0, lvl)])
+    xp_progress = xp - get_xp_for_lvl(lvl)
 
     # consider making these external constants
     style = ("░", "▒", "▓", "█")
