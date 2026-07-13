@@ -388,9 +388,6 @@ async def handle_xp_update(user: hikari.User, xp: int, app: hikari.RESTAware) ->
 
 
 async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
-    if event.message.guild_id is None:
-        raise hikari.ComponentStateConflictError("No guild id found.")
-
     user = event.message.author
     if (
         user.id in ids_on_cooldoWn
@@ -444,6 +441,10 @@ async def log_manual_xp(ctx: crescent.Context) -> None:
 # hooks
 
 
+async def is_guild_message_create_hook(event: hikari.MessageCreateEvent):
+    return crescent.HookResult(exit=event.message.guild_id is None)
+
+
 async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
     user = ctx.options.get("user", ctx.user)
     if not user.is_bot:
@@ -457,9 +458,6 @@ async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
 
 
 async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
-    if event.message.guild_id is None:
-        raise hikari.ComponentStateConflictError("No guild id found.")
-    
     user = event.message.author
     if user.id in ids_on_cooldoWn or await user_xp_denied(event.message.channel_id, user.id, event.app):
         return
@@ -500,6 +498,7 @@ async def is_human_hook(event: hikari.MessageCreateEvent) -> crescent.HookResult
 
 
 @plugin.include
+@crescent.hook(is_guild_message_create_hook)
 @crescent.hook(is_human_hook)
 @crescent.hook(manage_cooldown_hook, after=True)
 @crescent.event
@@ -548,9 +547,6 @@ class CheckXPCommand:
     user = crescent.option(hikari.User, "user to check rank & xp of", default=None)
 
     async def callback(self, ctx: crescent.Context) -> None:
-        if ctx.guild_id is None:
-            raise hikari.ComponentStateConflictError("No guild id found.")
-        
         user = self.user or ctx.user
         xp = await get_xp_db(user.id)
         lvl = get_lvl(xp)
@@ -572,9 +568,6 @@ class LeaderboardCommand:
     )
 
     async def callback(self, ctx: crescent.Context) -> None:
-        if ctx.guild_id is None:
-            raise hikari.ComponentStateConflictError("No guild id found.")
-        
         if not xp_time_is_enabled(self.time):
             await ctx.respond("This leaderboard is disabled.", ephemeral=True)
             return
@@ -639,7 +632,6 @@ class SetXPCommand:
     xp = crescent.option(int, "xp amount to set")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        assert ctx.guild_id is not None
         old_xp = await get_xp_db(self.user.id)
 
         try:
@@ -663,7 +655,6 @@ class AddXPCommand:
     xp = crescent.option(int, "xp amount to add")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        assert ctx.guild_id is not None
         try:
             await add_xp_db(self.user.id, self.xp)
         except aiosqlite.OperationalError:
@@ -685,7 +676,6 @@ class RemoveXPCommand:
     xp = crescent.option(int, "xp amount to remove")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        assert ctx.guild_id is not None
         try:
             await remove_xp_db(self.user.id, self.xp)
         except aiosqlite.OperationalError:
@@ -709,7 +699,6 @@ class ResetXPCommand:
     user = crescent.option(hikari.User, "user to reset xp of")
 
     async def callback(self, ctx: crescent.Context) -> None:
-        assert ctx.guild_id is not None
         old_xp = await get_xp_db(self.user.id)
         try:
             await reset_xp_db(self.user.id)
@@ -730,7 +719,6 @@ class ResetXPCommand:
     default_member_permissions=hikari.Permissions.ADMINISTRATOR
 )
 async def init_guild_xp(ctx: crescent.Context) -> None:
-    assert ctx.guild_id is not None
     await ctx.edit("Initializing...")
     for xp_time in ALL_XP_TIMES:
         await init_xp_table_db(xp_time)
