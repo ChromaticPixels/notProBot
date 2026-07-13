@@ -527,21 +527,20 @@ async def reset_xp_task() -> None:
     now = datetime.now(timezone.utc)
     monday_week = int(settings["Leaderboards"]["Start Week On Monday"])
     
-    if last_reset is None or now.date() > last_reset.date():
-        await init_xp_table_db("dailyxp")
-        print("reset daily")
-    if last_reset is None or now.date() > last_reset.date() - timedelta(
-        days = (last_reset.isoweekday() - monday_week) % 7 - (now.isoweekday() - monday_week) % 7
-    ):
-        await init_xp_table_db("weeklyxp")
-        print("reset weekly")
-    if last_reset is None or now.date().replace(day=1) > last_reset.date().replace(day=1):
-        await init_xp_table_db("monthlyxp")
-        print("reset monthly")
-    if last_reset is None or now.date().year > last_reset.date().year:
-        await init_xp_table_db("yearlyxp")
-        print("reset yearly")
-    print("reset task done")
+    if last_reset is None:
+        # ALL_XP_TIMES[1:] is all but "alltimexp"
+        [await init_xp_table_db(xp_time) for xp_time in ALL_XP_TIMES[1:]]
+    else:
+        if now.date() > last_reset.date():
+            await init_xp_table_db("dailyxp")
+        if now.date() > last_reset.date() - timedelta(
+            days = (last_reset.isoweekday() - monday_week) % 7 - (now.isoweekday() - monday_week) % 7
+        ):
+            await init_xp_table_db("weeklyxp")
+        if now.date().replace(day=1) > last_reset.date().replace(day=1):
+            await init_xp_table_db("monthlyxp")
+        if now.date().year > last_reset.date().year:
+            await init_xp_table_db("yearlyxp")
 
 
 # commands
