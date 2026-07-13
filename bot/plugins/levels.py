@@ -210,7 +210,7 @@ async def print_db(cur: aiosqlite.Cursor) -> None:
         data = await cur.execute(f"""
             SELECT * FROM {xp_time}
         """)
-        print(await data.fetchall())
+        print(f"{xp_time} data:\n{await data.fetchall()}")
 
 
 async def init_xp_table_db(xp_time: str) -> None:
@@ -733,11 +733,7 @@ async def init_guild_xp(ctx: crescent.Context) -> None:
     assert ctx.guild_id is not None
     await ctx.edit("Initializing...")
     for xp_time in ALL_XP_TIMES:
-        try:
-            await init_xp_table_db(xp_time)
-        except aiosqlite.OperationalError:
-            await ctx.edit(f"Something went wrong creating the {ALL_XP_TIMES_PRETTY[ALL_XP_TIMES.index(xp_time)]} storage.")
-            return
+        await init_xp_table_db(xp_time)
 
     await asyncio.sleep(1)
     await ctx.edit("Blank level storage created.")
