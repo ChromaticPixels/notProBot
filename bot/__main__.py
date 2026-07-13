@@ -24,7 +24,7 @@ async def unhandled_comp_hook(inter: hikari.ComponentInteraction) -> None:
 
 async def is_guild_command_hook(ctx: crescent.Context):
     if ctx.interaction.context != hikari.ApplicationContextType.GUILD:
-        await ctx.respond("DMs? I don't know... that's scary...")
+        await ctx.respond("DMs? I don't know... that's scary...", ephemeral=True)
         return crescent.HookResult(exit=True)
     return crescent.HookResult()
 
