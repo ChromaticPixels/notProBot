@@ -143,33 +143,21 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     remainder = divisions_left % num_states
     xp_bar = (
         make_ansi(
-            style[num_states - 1] * full_states_left
-            + (style[remainder] if remainder else ""),
+            style[num_states - 1] * full_states_left + (style[remainder] if remainder else ""),
             ["Blue Text"]
         ) + style[0] * (length - (full_states_left + int(remainder > 0)))
     )
     
     nick = user.nickname or user.display_name
+    nick_str = f"{(nick[:25] + '...') if len(nick) > 25 else nick}"
 
     return "\n".join([
         "```ansi",
         "⠀",
-        f"  {make_ansi(
-            (nick[:25] + '...') if len(nick) > 25 else nick,
-            ["Bold"]
-        )}  ",
-        f"  {make_ansi(
-            '@' + user.username,
-            ["White Text"]
-        )}  ",
+        f"  {make_ansi(nick_str, ["Bold"])}  ",
+        f"  {make_ansi('@' + user.username, ["White Text"])}  ",
         "⠀",
-        f"  {make_ansi(
-            str(lvl),
-            ["Bold", "Blue Text"]
-        )} {xp_bar} {make_ansi(
-            str(lvl + 1),
-            ["Bold", "White Text"]
-        )}  ",
+        f"  {make_ansi(str(lvl), ["Bold", "Blue Text"])} {xp_bar} {make_ansi(str(lvl + 1), ["Bold", "White Text"])}  ",
         "⠀",
         f"  {xp} / {xp + next_lvl_xp - xp_progress} XP  ·  RANK #{rank}  ",
         "⠀",
