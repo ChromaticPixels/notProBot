@@ -23,7 +23,7 @@ class Model:
         connection to a database, aiohttp client, or similar.
         """
         ...
-        self.db = await aiosqlite.connect("bot/data/temp_xp.db")
+        self.db = await aiosqlite.connect("bot/data/xp.db")
         print(self.db)
 
     async def on_stop(self, _: hikari.StoppedEvent) -> None:

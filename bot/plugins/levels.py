@@ -70,7 +70,7 @@ plugin = crescent.Plugin[hikari.GatewayBot, Model]()
 
 aiosqlite.register_adapter(hikari.Snowflake, lambda sf: int(sf))
 
-with open("bot/data/temp_settings.json", "r") as f:
+with open("bot/data/settings.json", "r") as f:
     settings: dict = json.load(f)
 
 # ids get added/removed on message to control xp gain per cooldown
@@ -231,7 +231,6 @@ async def init_xp_table_db(xp_time: str) -> None:
             f.write(str(datetime.timestamp(datetime.now(timezone.utc))))
 
         await db.commit()
-        await print_db(cur)
 
 
 async def get_size_xp_db(xp_time: str) -> int:
@@ -740,8 +739,38 @@ class ResetXPCommand:
 @plugin.include
 @crescent.hook(confirmation_hook)
 @crescent.command(
+    name="import",
+    description="replaces all xp data with imported data"
+)
+class ImportXPCommand:
+    file = crescent.option(hikari.Attachment, "db file to import")
+
+    async def callback(self, ctx: crescent.Context) -> None:
+        if not self.file.filename.endswith(".db"):
+            await ctx.respond("File must be an SQLite database.", ephemeral=True)
+            return
+
+        await ctx.edit("Importing...")
+        with open("bot/data/xp.db", "wb") as f:
+            f.write(await self.file.read())
+        await ctx.edit("Import complete.")
+
+
+@plugin.include
+@crescent.command(
+    name="export",
+    description="exports all xp data to a file"
+)
+async def export_xp(ctx: crescent.Context) -> None:
+    await ctx.respond("Exporting...")
+    await ctx.edit("Export complete.", attachment="bot/data/xp.db")
+
+
+@plugin.include
+@crescent.hook(confirmation_hook)
+@crescent.command(
     name="init",
-    description="removes all level data & creates a new level storage",
+    description="removes all xp data & creates a new xp storage",
     context_types=[hikari.ApplicationContextType.GUILD],
     default_member_permissions=hikari.Permissions.ADMINISTRATOR
 )
@@ -751,4 +780,4 @@ async def init_guild_xp(ctx: crescent.Context) -> None:
         await init_xp_table_db(xp_time)
 
     await asyncio.sleep(1)
-    await ctx.edit("Blank level storage created.")
+    await ctx.edit("Blank XP storage created.")
