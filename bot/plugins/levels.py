@@ -766,7 +766,14 @@ class ImportXPCommand:
 )
 async def export_xp(ctx: crescent.Context) -> None:
     await ctx.respond("Exporting...")
-    await ctx.edit("Export complete.", attachment="bot/data/xp.db")
+    date = datetime.now(timezone.utc).strftime('%Y%m%d')
+    with (
+        open("bot/data/xp.db", "rb") as f,
+        open(f"bot/data/exports/xp_{date}.db", "wb") as export
+    ):
+        export.write(f.read())
+    await ctx.edit("Export complete.", attachment=f"bot/data/exports/xp_{date}.db")
+    os.remove(f"bot/data/exports/xp_{date}.db")
 
 
 @plugin.include
