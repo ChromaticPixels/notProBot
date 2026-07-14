@@ -62,6 +62,16 @@ ANSI_KEY = {
 
 ESC_CHAR = ""
 
+SETTINGS_DESC = {
+    "Calculation": "On/off, cooldown, range, etc.; everything to do with the amount of XP gained by default.",
+    "Denylist": "Control which channels, roles, and users can gain XP.",
+    "Leaderboards": "Tweak which temporary leaderboards are enabled and when they start.",
+    "Level Roles": "Set reward roles for reaching a certain level.",
+    "Level Up Messages": "Customize the message sent when a user levels up and decide where it's sent.",
+    "Rank Cards": "Customize the rank card shown when a user checks their rank and XP.",
+    "Logging Channels": "Set channels for logging various command activity."
+}
+
 
 # inits
 
@@ -344,7 +354,6 @@ async def remove_xp_db(u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimex
 
 async def handle_lvl_increase(user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
     role_ids = await get_user_roles(user.id, app)
-    
     for role_id, role_lvl in settings["Level Roles"].items():
         if role_lvl <= lvl and int(role_id) not in role_ids:
             await app.rest.add_role_to_member(
@@ -366,7 +375,6 @@ async def handle_lvl_increase(user: hikari.User, lvl: int, app: hikari.RESTAware
 
 async def handle_lvl_decrease(user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
     role_ids = await get_user_roles(user.id, app)
-
     for role_id, role_lvl in settings["Level Roles"].items():
         if role_lvl > lvl and int(role_id) in role_ids:
             await app.rest.remove_role_from_member(
@@ -379,7 +387,6 @@ async def handle_xp_update(user: hikari.User, xp: int, app: hikari.RESTAware) ->
     new_xp = await get_xp_db(user.id)
     new_lvl = get_lvl(new_xp)
     old_lvl = get_lvl(new_xp - xp)
-
     if new_lvl > old_lvl:
         await handle_lvl_increase(user, new_lvl, app)
     if new_lvl < old_lvl:
@@ -592,8 +599,7 @@ class LeaderboardCommand:
         max_pages = ceildiv(await get_size_xp_db(xp_time), 10)
         if max_pages == 0:
             await ctx.respond(embed=hikari.Embed(
-                title=f"Leaderboard{': ' + xp_time_pretty
-                    if xp_time != 'alltimexp' else ''}",
+                title=f"Leaderboard{': ' + xp_time_pretty if xp_time != 'alltimexp' else ''}",
                 description="No data for this leaderboard yet; limbillions must chat."
             ).set_footer(timestamp))
             return
@@ -602,16 +608,13 @@ class LeaderboardCommand:
         # let me have this
         lb_nav = nav.NavigatorView(pages=[
             hikari.Embed(
-                title=f"Leaderboard{': ' + xp_time_pretty
-                    if xp_time != 'alltimexp' else ''}",
+                title=f"Leaderboard{': ' + xp_time_pretty if xp_time != 'alltimexp' else ''}",
                 description="\n".join([
                     f"{(page - 1) * 10 + i + 1}. {
                         (await rest.fetch_user(id)).mention
                     } · Level {get_lvl(xp)} · {xp} XP"
                     for i, (id, xp) in enumerate(
-                        await get_xp_db_bulk(
-                            page, xp_time
-                        )
+                        await get_xp_db_bulk(page, xp_time)
                     )
                 ])
             ).set_footer(timestamp)
@@ -769,13 +772,13 @@ async def export_xp(ctx: crescent.Context) -> None:
 @plugin.include
 @crescent.hook(confirmation_hook)
 @crescent.command(
-    name="init",
-    description="removes all xp data & creates a new xp storage",
+    name="resetallxp",
+    description="removes all xp data & creates a new xp storage (admin only)",
     context_types=[hikari.ApplicationContextType.GUILD],
     default_member_permissions=hikari.Permissions.ADMINISTRATOR
 )
-async def init_guild_xp(ctx: crescent.Context) -> None:
-    await ctx.edit("Initializing...")
+async def reset_guild_xp(ctx: crescent.Context) -> None:
+    await ctx.edit("Resetting...")
     for xp_time in ALL_XP_TIMES:
         await init_xp_table_db(xp_time)
 
