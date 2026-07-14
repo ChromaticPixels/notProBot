@@ -520,7 +520,7 @@ async def on_message_create(event: hikari.MessageCreateEvent) -> None:
 
 
 @plugin.include
-@tasks.cronjob("* * * * *", on_startup=True)
+@tasks.cronjob("*/30 * * * *", on_startup=True)
 async def reset_xp_task() -> None:
     with open("bot/data/last_table_reset.txt", "r") as f:
         ts = f.read()
