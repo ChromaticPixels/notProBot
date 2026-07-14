@@ -414,7 +414,7 @@ async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
 # logging
 
 
-async def log_manual_xp(ctx: crescent.Context) -> None:
+async def log_manual_xp(ctx: crescent.Context, xp=None) -> None:
     channel_id = settings["Logging Channels"]["Manual XP"]
     if channel_id is None:
         return
@@ -423,9 +423,9 @@ async def log_manual_xp(ctx: crescent.Context) -> None:
     arg_user: hikari.User = ctx.options.get("user", ctx.user)
 
     message = {
-        "set": f"{cmd_user.mention} set {arg_user.mention}'s XP to {ctx.options.get('xp')}",
-        "add": f"{cmd_user.mention} added {ctx.options.get('xp')} XP to {arg_user.mention}",
-        "remove": f"{cmd_user.mention} removed {ctx.options.get('xp')} XP from {arg_user.mention}",
+        "set": f"{cmd_user.mention} set {arg_user.mention}'s XP to {xp}",
+        "add": f"{cmd_user.mention} added {xp} XP to {arg_user.mention}",
+        "remove": f"{cmd_user.mention} removed {xp} XP from {arg_user.mention}",
         "reset": f"{cmd_user.mention} reset {arg_user.mention}'s XP"
     }[ctx.command]
 
@@ -439,6 +439,10 @@ async def log_manual_xp(ctx: crescent.Context) -> None:
 
 
 # hooks
+
+
+async def is_human_hook(event: hikari.MessageCreateEvent) -> crescent.HookResult:
+    return crescent.HookResult(exit=event.message.author.is_bot)
 
 
 async def is_guild_message_create_hook(event: hikari.MessageCreateEvent):
@@ -455,6 +459,16 @@ async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
     else:
         await ctx.respond("We bots don't earn xp...")
     return crescent.HookResult(exit=True)
+
+
+async def is_xp_or_lvl_hook(ctx: crescent.Context) -> crescent.HookResult:
+    if ctx.options.get("xp") is None == ctx.options.get("lvl") is None:
+        await ctx.respond(
+            "You must specify either an xp amount or a level amount.",
+            ephemeral=True
+        )
+        return crescent.HookResult(exit=True)
+    return crescent.HookResult()
 
 
 async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
@@ -488,10 +502,6 @@ async def confirmation_hook(ctx: crescent.Context) -> crescent.HookResult:
         await ctx.delete()
     
     return result
-
-
-async def is_human_hook(event: hikari.MessageCreateEvent) -> crescent.HookResult:
-    return crescent.HookResult(exit=event.message.author.is_bot)
 
 
 # events
@@ -623,70 +633,87 @@ xp_group = crescent.Group(
 
 @plugin.include
 @xp_group.child
+@crescent.hook(is_xp_or_lvl_hook)
 @crescent.command(
     name="set",
     description="set xp of user"
 )
 class SetXPCommand:
     user = crescent.option(hikari.User, "user to set xp of")
-    xp = crescent.option(int, "xp amount to set")
+    xp = crescent.option(int, "xp amount to set", default=None)
+    lvl = crescent.option(int, "level amount to set", default=None)
 
     async def callback(self, ctx: crescent.Context) -> None:
+        xp = self.xp if self.xp is not None else get_xp_for_lvl(ctx.options.get("lvl", 0))
         old_xp = await get_xp_db(self.user.id)
 
         try:
-            await set_xp_db(self.user.id, self.xp)
+            await set_xp_db(self.user.id, xp)
         except aiosqlite.OperationalError:
             await ctx.respond("Something went wrong updating the data.", ephemeral=True)
         else:
-            await handle_xp_update(self.user, self.xp - old_xp, ctx.app)
-            await ctx.respond(f"Set xp of {self.user.username} to {self.xp}.")
-            await log_manual_xp(ctx)
+            await handle_xp_update(self.user, xp - old_xp, ctx.app)
+            await ctx.respond(f"Set xp of {self.user.username} to {xp}.")
+            await log_manual_xp(ctx, xp)
 
 
 @plugin.include
 @xp_group.child
+@crescent.hook(is_xp_or_lvl_hook)
 @crescent.command(
     name="add",
     description="add xp to user"
 )
 class AddXPCommand:
     user = crescent.option(hikari.User, "user to add xp to")
-    xp = crescent.option(int, "xp amount to add")
+    xp = crescent.option(int, "xp amount to add", default=None)
+    lvl = crescent.option(int, "level amount to add", default=None)
 
     async def callback(self, ctx: crescent.Context) -> None:
+        xp = self.xp
+        if xp is None:
+            current_lvl = get_lvl(await get_xp_db(self.user.id))
+            xp = get_xp_for_lvl(current_lvl + ctx.options.get("lvl", 0)) - get_xp_for_lvl(current_lvl)
+        
         try:
-            await add_xp_db(self.user.id, self.xp)
+            await add_xp_db(self.user.id, xp)
         except aiosqlite.OperationalError:
             await ctx.respond("Something went wrong updating the data.", ephemeral=True)
         else:
-            await handle_xp_update(self.user, self.xp, ctx.app)
-            await ctx.respond(f"Added {self.xp} xp to {self.user.username}.")
-            await log_manual_xp(ctx)
+            await handle_xp_update(self.user, xp, ctx.app)
+            await ctx.respond(f"Added {xp} xp to {self.user.username}.")
+            await log_manual_xp(ctx, xp)
 
 
 @plugin.include
 @xp_group.child
+@crescent.hook(is_xp_or_lvl_hook)
 @crescent.command(
     name="remove",
     description="remove xp from user"
 )
 class RemoveXPCommand:
     user = crescent.option(hikari.User, "user to remove xp from")
-    xp = crescent.option(int, "xp amount to remove")
+    xp = crescent.option(int, "xp amount to remove", default=None)
+    lvl = crescent.option(int, "level amount to remove", default=None)
 
     async def callback(self, ctx: crescent.Context) -> None:
+        xp = self.xp
+        if xp is None:
+            current_lvl = get_lvl(await get_xp_db(self.user.id))
+            xp = get_xp_for_lvl(current_lvl) - get_xp_for_lvl(current_lvl - ctx.options.get("lvl", 0))
+        
         try:
-            await remove_xp_db(self.user.id, self.xp)
+            await remove_xp_db(self.user.id, xp)
         except aiosqlite.OperationalError:
             await ctx.respond(
                 "Something went wrong updating the data.",
                 ephemeral=True
             )
         else:
-            await handle_xp_update(self.user, -self.xp, ctx.app)
-            await ctx.respond(f"Removed {self.xp} xp from {self.user.username}.")
-            await log_manual_xp(ctx)
+            await handle_xp_update(self.user, -xp, ctx.app)
+            await ctx.respond(f"Removed {xp} xp from {self.user.username}.")
+            await log_manual_xp(ctx, xp)
 
 
 @plugin.include
