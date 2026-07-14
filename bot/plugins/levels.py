@@ -188,12 +188,12 @@ class ConfirmView(OriginalCrescentCtxView):
         super().__init__(*args, **kwargs)
         self.result: crescent.HookResult | None = None
     
-    @miru.button(label="Confirm", style=hikari.ButtonStyle.SUCCESS)
+    @miru.button(label="Confirm", style=hikari.ButtonStyle.DANGER)
     async def confirm_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
         self.result = crescent.HookResult()
         self.stop()
     
-    @miru.button(label="Cancel", style=hikari.ButtonStyle.DANGER)
+    @miru.button(label="Cancel", style=hikari.ButtonStyle.SECONDARY)
     async def cancel_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
         self.result = crescent.HookResult(exit=True)
         self.stop()
