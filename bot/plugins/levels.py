@@ -168,7 +168,7 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
         f"  {make_ansi(nick_str, ["Bold"])}  ",
         f"  {make_ansi('@' + user.username, ["White Text"])}  ",
         "⠀",
-        f"  {make_ansi(str(lvl), ["Bold", "Blue Text"])} {xp_bar} {make_ansi(str(lvl + 1), ["Bold", "White Text"])}  ",
+        f"  {make_ansi(str(lvl), ["Bold", "Blue Text" if progress else "White Text"])} {xp_bar} {make_ansi(str(lvl + 1), ["Bold", "White Text"])}  ",
         "⠀",
         f"  {xp} / {xp + next_lvl_xp - xp_progress} XP  ·  RANK #{rank}  ",
         "⠀",
