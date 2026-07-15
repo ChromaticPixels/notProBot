@@ -450,7 +450,7 @@ async def is_human_hook(event: hikari.MessageCreateEvent) -> crescent.HookResult
 
 
 async def is_correct_guild_msg_create_hook(event: hikari.MessageCreateEvent):
-    return crescent.HookResult(exit=event.message.guild_id != int(os.environ["GUILD_ID"]))
+    return crescent.HookResult(exit=event.message.guild_id != GUILD_ID)
 
 
 async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
@@ -623,7 +623,8 @@ class LeaderboardCommand:
 xp_group = crescent.Group(
     name="xp",
     description="xp management commands",
-    hooks=[is_bot_xp_hook]
+    hooks=[is_bot_xp_hook],
+    default_member_permissions=hikari.Permissions.MANAGE_GUILD
 )
 
 
@@ -733,11 +734,20 @@ class ResetXPCommand:
             await log_manual_xp(ctx)
 
 
+allxp_group = crescent.Group(
+    name="allxp",
+    description="all xp management commands",
+    hooks=[is_bot_xp_hook],
+    default_member_permissions=hikari.Permissions.MANAGE_GUILD
+)
+
+
 @plugin.include
+@allxp_group.child
 @crescent.hook(confirmation_hook)
 @crescent.command(
     name="import",
-    description="replaces all xp data with imported data"
+    description="replaces all xp data with imported data (manage server only)",
 )
 class ImportXPCommand:
     file = crescent.option(hikari.Attachment, "db file to import")
@@ -754,9 +764,10 @@ class ImportXPCommand:
 
 
 @plugin.include
+@allxp_group.child
 @crescent.command(
     name="export",
-    description="exports all xp data to a file"
+    description="exports all xp data to a file",
 )
 async def export_xp(ctx: crescent.Context) -> None:
     await ctx.respond("Exporting...")
@@ -771,12 +782,11 @@ async def export_xp(ctx: crescent.Context) -> None:
 
 
 @plugin.include
+@allxp_group.child
 @crescent.hook(confirmation_hook)
 @crescent.command(
     name="resetallxp",
-    description="removes all xp data & creates a new xp storage (admin only)",
-    context_types=[hikari.ApplicationContextType.GUILD],
-    default_member_permissions=hikari.Permissions.ADMINISTRATOR
+    description="removes all xp data & creates a new xp storage (manage server only)",
 )
 async def reset_guild_xp(ctx: crescent.Context) -> None:
     await ctx.edit("Resetting...")

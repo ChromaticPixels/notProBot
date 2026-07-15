@@ -8,6 +8,8 @@ import miru
 
 from bot.model import Model
 
+GUILD_ID = int(os.environ["GUILD_ID"])
+
 uvloop.install()
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -22,20 +24,11 @@ async def unhandled_comp_hook(inter: hikari.ComponentInteraction) -> None:
         flags=hikari.MessageFlag.EPHEMERAL
     )
 
-async def is_correct_guild_cmd_hook(ctx: crescent.Context):
-    if ctx.interaction.context != hikari.ApplicationContextType.GUILD:
-        await ctx.respond("DMs? I don't know... that's scary...", ephemeral=True)
-        return crescent.HookResult(exit=True)
-    elif ctx.interaction.guild_id != int(os.environ["GUILD_ID"]):
-        await ctx.respond("GOD damnit where the HELL are we!?", ephemeral=True)
-        return crescent.HookResult(exit=True)
-    return crescent.HookResult()
-
 miru_client = miru.Client(bot)
 miru_client.set_unhandled_component_interaction_hook(unhandled_comp_hook)
 model = Model(bot, miru_client)
 
-client = crescent.Client(bot, model, command_hooks=[is_correct_guild_cmd_hook])
+client = crescent.Client(bot, model, default_guild=GUILD_ID, tracked_guilds=[GUILD_ID])
 client.plugins.load_folder("bot.plugins")
 
 bot.subscribe(hikari.StartingEvent, model.on_start)
