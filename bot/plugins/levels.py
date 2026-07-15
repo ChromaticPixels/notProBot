@@ -747,7 +747,7 @@ allxp_group = crescent.Group(
 @crescent.hook(confirmation_hook)
 @crescent.command(
     name="import",
-    description="replaces all xp data with imported data (manage server only)",
+    description="replaces all xp data with imported data",
 )
 class ImportXPCommand:
     file = crescent.option(hikari.Attachment, "db file to import")
@@ -786,10 +786,12 @@ async def export_xp(ctx: crescent.Context) -> None:
 @crescent.hook(confirmation_hook)
 @crescent.command(
     name="resetallxp",
-    description="removes all xp data & creates a new xp storage (manage server only)",
+    description="removes all xp data & creates a new xp storage",
 )
 async def reset_guild_xp(ctx: crescent.Context) -> None:
     await ctx.edit("Resetting...")
     for xp_time in ALL_XP_TIMES:
         await init_xp_table_db(xp_time)
     await ctx.edit("Blank XP storage created.")
+
+
