@@ -179,9 +179,9 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
 # classes
 
 
-class PreviousButton(menu.ScreenButton):
+class BackButton(menu.ScreenButton):
     def __init__(self) -> None:
-        super().__init__(label="Previous", style=hikari.ButtonStyle.SECONDARY)
+        super().__init__(label="Back", style=hikari.ButtonStyle.SECONDARY)
 
     async def callback(self, ctx: miru.ViewContext) -> None:
         await self.menu.pop()
@@ -449,8 +449,8 @@ async def is_human_hook(event: hikari.MessageCreateEvent) -> crescent.HookResult
     return crescent.HookResult(exit=event.message.author.is_bot)
 
 
-async def is_guild_message_create_hook(event: hikari.MessageCreateEvent):
-    return crescent.HookResult(exit=event.message.guild_id is None)
+async def is_correct_guild_msg_create_hook(event: hikari.MessageCreateEvent):
+    return crescent.HookResult(exit=event.message.guild_id != int(os.environ["GUILD_ID"]))
 
 
 async def is_bot_xp_hook(ctx: crescent.Context) -> crescent.HookResult:
@@ -512,7 +512,7 @@ async def confirmation_hook(ctx: crescent.Context) -> crescent.HookResult:
 
 
 @plugin.include
-@crescent.hook(is_guild_message_create_hook)
+@crescent.hook(is_correct_guild_msg_create_hook)
 @crescent.hook(is_human_hook)
 @crescent.hook(manage_cooldown_hook, after=True)
 @crescent.event
