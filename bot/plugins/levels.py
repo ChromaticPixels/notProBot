@@ -316,7 +316,6 @@ async def set_xp_db(u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp")
         """, (xp, u_id))
 
         await db.commit()
-        await print_db(cur)
 
 
 async def reset_xp_db(u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> None:
@@ -330,7 +329,6 @@ async def reset_xp_db(u_id: hikari.Snowflake, xp_time: str = "alltimexp") -> Non
         """, (u_id,))
 
         await db.commit()
-        await print_db(cur)
 
 
 async def add_xp_db(u_id: hikari.Snowflake, xp: int, xp_time: str = "alltimexp") -> None:
@@ -610,12 +608,8 @@ class LeaderboardCommand:
             hikari.Embed(
                 title=f"Leaderboard{': ' + xp_time_pretty if xp_time != 'alltimexp' else ''}",
                 description="\n".join([
-                    f"{(page - 1) * 10 + i + 1}. {
-                        (await rest.fetch_user(id)).mention
-                    } · Level {get_lvl(xp)} · {xp} XP"
-                    for i, (id, xp) in enumerate(
-                        await get_xp_db_bulk(page, xp_time)
-                    )
+                    f"{(page - 1) * 10 + i + 1}. <@{id}> · Level {get_lvl(xp)} · {xp} XP"
+                    for i, (id, xp) in enumerate(await get_xp_db_bulk(page, xp_time))
                 ])
             ).set_footer(timestamp)
             for page in range(1, max_pages + 1)
@@ -788,6 +782,4 @@ async def reset_guild_xp(ctx: crescent.Context) -> None:
     await ctx.edit("Resetting...")
     for xp_time in ALL_XP_TIMES:
         await init_xp_table_db(xp_time)
-
-    await asyncio.sleep(1)
     await ctx.edit("Blank XP storage created.")
