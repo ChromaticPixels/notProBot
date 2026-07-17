@@ -63,12 +63,12 @@ ANSI_KEY = {
 ESC_CHAR = ""
 
 SETTINGS_DESC = {
-    "Calculation": "On/off, cooldown, range, etc.; everything to do with the amount of XP gained by default.",
+    "Calculation": "On/off, cooldown, range, etc.; adjust default XP gain.",
     "Denylist": "Control which channels, roles, and users can gain XP.",
-    "Leaderboards": "Tweak which temporary leaderboards are enabled and when they start.",
+    "Leaderboards": "Adjust timed leaderboards and their start time.",
     "Level Roles": "Set reward roles for reaching a certain level.",
-    "Level Up Messages": "Customize the message sent when a user levels up and decide where it's sent.",
-    "Rank Cards": "Customize the rank card shown when a user checks their rank and XP.",
+    "Level Up Messages": "Customize level up message content and location.",
+    "Rank Cards": "Customize the card shown when a user checks their rank and XP.",
     "Logging Channels": "Set channels for logging various command activity."
 }
 
@@ -210,6 +210,26 @@ class ConfirmView(OriginalCrescentCtxView):
 
     async def view_check(self, ctx: miru.ViewContext) -> bool:
         return ctx.user.id == self.original_ctx.user.id
+
+
+class SettingsScreen(menu.Screen):
+    async def build_content(self) -> menu.ScreenContent:
+        return menu.ScreenContent(
+            embed=hikari.Embed(
+                title="Settings",
+                description="\n".join([
+                    f"- **{setting}**: {desc}"
+                    for setting, desc in SETTINGS_DESC.items()
+                ])
+            ).set_footer(make_timestamp(datetime.now(timezone.utc)))
+        )
+    
+    @menu.text_select(
+        placeholder="Select a category to view",
+        options=[miru.SelectOption(label=setting, description=desc) for setting, desc in SETTINGS_DESC.items()]
+    )
+    async def setting_select(self, ctx: miru.ViewContext, select: miru.TextSelect) -> None:
+        await ctx.respond(f"Selected {select.values[0]}")
 
 
 # database functions
@@ -586,10 +606,6 @@ class LeaderboardCommand:
             await ctx.respond("This leaderboard is disabled.", ephemeral=True)
             return
 
-        miru_client = ctx.client.model.miru_client
-        assert isinstance(miru_client, miru.Client)
-
-        rest = ctx.app.rest
         xp_time = ALL_XP_TIMES[self.time]
         xp_time_pretty = ALL_XP_TIMES_PRETTY[ALL_XP_TIMES.index(xp_time)]
         timestamp = make_timestamp(datetime.now(timezone.utc))
@@ -615,6 +631,8 @@ class LeaderboardCommand:
             for page in range(1, max_pages + 1)
         ])
 
+        miru_client = ctx.client.model.miru_client
+        assert isinstance(miru_client, miru.Client)
         builder = await lb_nav.build_response_async(miru_client)
         await ctx.respond_with_builder(builder)
         miru_client.start_view(lb_nav)
@@ -795,3 +813,14 @@ async def reset_guild_xp(ctx: crescent.Context) -> None:
     await ctx.edit("Blank XP storage created.")
 
 
+@plugin.include
+@crescent.command(
+    name="settings",
+    description="view & edit bot settings"
+)
+async def view_settings(ctx: crescent.Context) -> None:
+    miru_client = ctx.client.model.miru_client
+    settings_menu = menu.Menu()
+    builder = await settings_menu.build_response_async(miru_client, SettingsScreen(settings_menu))
+    await ctx.respond_with_builder(builder)
+    miru_client.start_view(settings_menu)
