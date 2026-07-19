@@ -66,7 +66,7 @@ SETTINGS_DESC = {
     "Calculation": "On/off, cooldown, range, etc.; adjust default XP gain.",
     "Denylist": "Control which channels, roles, and users can gain XP.",
     "Leaderboards": "Adjust timed leaderboards and their start time.",
-    "Level Roles": "Set reward roles for reaching a certain level.",
+    "Level Roles": "Set roles to reward for reaching a certain level.",
     "Level Up Messages": "Customize level up message content and location.",
     "Rank Cards": "Customize the card shown when a user checks their rank and XP.",
     "Logging Channels": "Set channels for logging various command activity."
@@ -144,17 +144,18 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
 
     # consider making these external constants
     style = ("░", "▒", "▓", "█")
-    num_states = len(style)
+    non_empty_states = len(style) - 1
     length = 36
-    total_divisions = (num_states - 1) * length
+    total_divisions = non_empty_states * length
 
     progress = xp_progress / next_lvl_xp
     divisions_left = math.floor(progress * total_divisions)
-    full_states_left = divisions_left // num_states
-    remainder = divisions_left % num_states
+    full_states_left = divisions_left // non_empty_states
+    remainder = divisions_left % non_empty_states
+    print(total_divisions, progress, divisions_left, full_states_left, remainder)
     xp_bar = (
         make_ansi(
-            style[num_states - 1] * full_states_left + (style[remainder] if remainder else ""),
+            style[non_empty_states] * full_states_left + (style[remainder] if remainder else ""),
             ["Blue Text"]
         ) + style[0] * (length - (full_states_left + int(remainder > 0)))
     )
@@ -193,6 +194,12 @@ class OriginalCrescentCtxView(miru.View):
         self.original_ctx = ctx
 
 
+class OriginalMiruCtxScreen(menu.Screen):
+    def __init__(self, menu, ctx: miru.ViewContext, *args, **kwargs) -> None:
+        super().__init__(menu, *args, **kwargs)
+        self.original_ctx = ctx
+
+
 class ConfirmView(OriginalCrescentCtxView):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -210,6 +217,123 @@ class ConfirmView(OriginalCrescentCtxView):
 
     async def view_check(self, ctx: miru.ViewContext) -> bool:
         return ctx.user.id == self.original_ctx.user.id
+    
+
+class CalculationScreen(OriginalMiruCtxScreen):
+    back = BackButton()
+
+    async def build_content(self) -> menu.ScreenContent:
+        return menu.ScreenContent(
+            embed=hikari.Embed(
+                title="Calculation Settings",
+                description="\n".join([
+                    f"- **{setting}**: {value}"
+                    for setting, value in settings["Calculation"].items()
+                ])
+            )
+        )
+    
+
+class DenylistScreen(OriginalMiruCtxScreen):
+    back = BackButton()
+
+    async def build_content(self) -> menu.ScreenContent:
+        (deny_channels, deny_roles, deny_users) = settings["Denylist"].values()
+        denylist = settings["Denylist"]
+        return menu.ScreenContent(
+            embed=hikari.Embed(
+                title="Denylist Settings",
+                description="\n".join([
+                    f"- Denied Channels: {', '.join([
+                        f'https://discord.com/channels/{GUILD_ID}/{channel}'
+                        for channel in deny_channels
+                    ]) or None}",
+                    f"- Denied Roles: {', '.join([f'<@&{role}>' for role in deny_roles]) or None}",
+                    f"- Denied Users: {', '.join([f'<@{user}>' for user in deny_users]) or None}"
+                ])
+            )
+        )
+    
+
+class LeaderboardScreen(OriginalMiruCtxScreen):
+    back = BackButton()
+    
+    async def build_content(self) -> menu.ScreenContent:
+        return menu.ScreenContent(
+            embed=hikari.Embed(
+                title="Leaderboard Settings",
+                description="\n".join([
+                    f"- **{setting}**: {value}"
+                    for setting, value in settings["Leaderboards"].items()
+                ])
+            )
+        )
+    
+
+class LevelRoleScreen(OriginalMiruCtxScreen):
+    back = BackButton()
+    
+    async def build_content(self) -> menu.ScreenContent:
+        return menu.ScreenContent(
+            embed=hikari.Embed(
+                title="Level Role Settings",
+                description="\n".join([
+                    f"- <@&{role}>: Level {lvl}"
+                    for role, lvl in settings["Level Roles"].items()
+                ]) or "No active level roles."
+            ) # "- <@&{role}>: Level {lvl}"
+        ) # "- **Level {lvl}: <@&{role}>**"
+    
+
+class LevelUpMessageScreen(OriginalMiruCtxScreen):
+    back = BackButton()
+    
+    async def build_content(self) -> menu.ScreenContent:
+        (channel, message) = settings["Level Up Messages"].values()
+        user = self.original_ctx.user
+        level = random.randint(1, 100)
+        return menu.ScreenContent(
+            embed=hikari.Embed(
+                title="Level Up Message Settings",
+                description="\n".join([
+                    f"- **Channel**: {f'https://discord.com/channels/{GUILD_ID}/{channel}' or None}",
+                    f"- **Message**: {
+                        f'\n{message.format_map(locals())}'
+                        if message is not None else 'Default'
+                    }"
+                ])
+            )
+        )
+    
+
+class RankCardScreen(OriginalMiruCtxScreen):
+    back = BackButton()
+    
+    async def build_content(self) -> menu.ScreenContent:
+        (xp_bar_color,) = settings["Rank Cards"].values()
+        return menu.ScreenContent(
+            embed=hikari.Embed(
+                title="Rank Card Settings",
+                description=f"XP Bar Color: ```ansi\n{make_ansi(
+                    xp_bar_color, [f'{xp_bar_color} Text', 'Bold']
+                )}```"
+            )
+        )
+    
+
+class LoggingChannelScreen(OriginalMiruCtxScreen):
+    back = BackButton()
+    
+    async def build_content(self) -> menu.ScreenContent:
+        return menu.ScreenContent(
+            embed=hikari.Embed(
+                title="Logging Channel Settings",
+                description="\n".join([
+                    f"- **{setting}**: https://discord.com/channels/{GUILD_ID}/{channel}"
+                    for setting, channel in settings["Logging Channels"].items()
+                ])
+            )
+        )
 
 
 class SettingsScreen(menu.Screen):
@@ -221,15 +345,19 @@ class SettingsScreen(menu.Screen):
                     f"- **{setting}**: {desc}"
                     for setting, desc in SETTINGS_DESC.items()
                 ])
-            ).set_footer(make_timestamp(datetime.now(timezone.utc)))
+            )
         )
     
     @menu.text_select(
-        placeholder="Select a category to view",
-        options=[miru.SelectOption(label=setting, description=desc) for setting, desc in SETTINGS_DESC.items()]
+        placeholder="Select a category to view...",
+        options=[
+            miru.SelectOption(label=setting, description=desc)
+            for setting, desc in SETTINGS_DESC.items()
+        ]
     )
     async def setting_select(self, ctx: miru.ViewContext, select: miru.TextSelect) -> None:
-        await ctx.respond(f"Selected {select.values[0]}")
+        setting_class = f"{select.values[0].removesuffix('s').replace(' ', '')}Screen"
+        await self.menu.push(globals()[setting_class](self.menu, ctx))
 
 
 # database functions
@@ -380,15 +508,19 @@ async def handle_lvl_increase(user: hikari.User, lvl: int, app: hikari.RESTAware
             )
 
     channel = settings["Level Up Messages"]["Channel"]
+    message = (
+        settings["Level Up Messages"]["Message"]
+        or "{user} is now level {level}!"
+    ).replace("{level}", "{lvl}").format_map(locals())
+    '''
+    "\n".join((
+        f"### {user} climbed to level {level}",
+        "Keep it up and you *might* make it to a Nest (real)",
+        "\n:tada: :tada: :tada: :tada:"
+    ))
+    '''
     if channel is not None:
-        # hardcoded for now
-        await app.rest.create_message(channel, embed=hikari.Embed(
-            description="\n".join((
-                f"### {user.username} climbed to level {lvl}",
-                "Keep it up and you *might* make it to a Nest (real)",
-                "\n:tada: :tada: :tada: :tada:"
-            ))
-        ))
+        await app.rest.create_message(channel, embed=hikari.Embed(description=message))
 
 
 async def handle_lvl_decrease(user: hikari.User, lvl: int, app: hikari.RESTAware) -> None:
@@ -803,7 +935,7 @@ async def export_xp(ctx: crescent.Context) -> None:
 @allxp_group.child
 @crescent.hook(confirmation_hook)
 @crescent.command(
-    name="resetallxp",
+    name="reset",
     description="removes all xp data & creates a new xp storage",
 )
 async def reset_guild_xp(ctx: crescent.Context) -> None:

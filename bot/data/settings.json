@@ -4,12 +4,12 @@
         "Cooldown": 7,
         "Minimum XP": 1,
         "Maximum XP": 44,
-        "Next Level Formula": "default"
+        "Next Level Formula": "Default (not editable currently)"
     },
     "Denylist": {
-        "Denied Channels": [959566472001228800],
-        "Denied Roles": [],
-        "Denied Users": []
+        "Denied Channels": [959566472001228800, 959566471539863625],
+        "Denied Roles": [1517650914641576066, 1526998413160484934],
+        "Denied Users": [282859044593598464, 518129184338345985]
     },
     "Leaderboards": {
         "Yearly": false,
@@ -22,9 +22,12 @@
         "1517650914641576066": 1
     },
     "Level Up Messages": {
-        "Channel": 959566471539863625
+        "Channel": 959566471539863625,
+        "Message": "### {user} climbed to level {level}\nKeep it up and you *might* make it to a Nest (real)\n\n:tada: :tada: :tada: :tada:"
     },
-    "Rank Cards": {},
+    "Rank Cards": {
+        "XP Bar Color": "Blue"
+    },
     "Logging Channels": {
         "Manual XP": 959566471539863625
     }
