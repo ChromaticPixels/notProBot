@@ -323,6 +323,7 @@ class RankCardScreen(OriginalMiruCtxScreen):
     async def build_content(self) -> menu.ScreenContent:
         rank_card_settings: dict = settings["Rank Cards"]
         (xp_bar_color,) = list(rank_card_settings.values())[-1:]
+        
         return menu.ScreenContent(
             embed=hikari.Embed(
                 title="Rank Card Settings",
@@ -530,13 +531,6 @@ async def handle_lvl_increase(user: hikari.User, lvl: int, app: hikari.RESTAware
         settings["Level Up Messages"]["Message"]
         or "{user} is now level {level}!"
     ).replace("{level}", "{lvl}").format_map(locals())
-    '''
-    "\n".join((
-        f"### {user} climbed to level {level}",
-        "Keep it up and you *might* make it to a Nest (real)",
-        "\n:tada: :tada: :tada: :tada:"
-    ))
-    '''
     if channel is not None:
         await app.rest.create_message(channel, embed=hikari.Embed(description=message))
 
