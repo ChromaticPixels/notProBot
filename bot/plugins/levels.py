@@ -152,7 +152,6 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     divisions_left = math.floor(progress * total_divisions)
     full_states_left = divisions_left // non_empty_states
     remainder = divisions_left % non_empty_states
-    print(total_divisions, progress, divisions_left, full_states_left, remainder)
     xp_bar = (
         make_ansi(
             style[non_empty_states] * full_states_left + (style[remainder] if remainder else ""),
