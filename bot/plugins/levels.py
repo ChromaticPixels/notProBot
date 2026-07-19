@@ -129,7 +129,7 @@ async def user_xp_denied(c_id: int, u_id: int, app: hikari.RESTAware) -> bool:
 
 def make_ansi(txt: str, styles: list[str] = []) -> str:
     return (
-        f"{ESC_CHAR}[{';'.join([ANSI_KEY[style] for style in (styles or ["Normal"])])}m"
+        f"{ESC_CHAR}[{';'.join([ANSI_KEY[style] for style in (styles or ['Normal'])])}m"
         + txt + f"{ESC_CHAR}[0m"
     )
 
@@ -147,6 +147,7 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     non_empty_states = len(style) - 1
     length = 36
     total_divisions = non_empty_states * length
+    xp_bar_color_str = f"{settings['Rank Cards']['XP Bar Color']} Text"
 
     progress = xp_progress / next_lvl_xp
     divisions_left = math.floor(progress * total_divisions)
@@ -155,7 +156,7 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     xp_bar = (
         make_ansi(
             style[non_empty_states] * full_states_left + (style[remainder] if remainder else ""),
-            ["Blue Text"]
+            [xp_bar_color_str]
         ) + style[0] * (length - (full_states_left + int(remainder > 0)))
     )
     
@@ -165,10 +166,10 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     return "\n".join([
         "```ansi",
         "⠀",
-        f"  {make_ansi(nick_str, ["Bold"])}  ",
-        f"  {make_ansi('@' + user.username, ["White Text"])}  ",
+        f"  {make_ansi(nick_str, ['Bold'])}  ",
+        f"  {make_ansi('@' + user.username, ['White Text'])}  ",
         "⠀",
-        f"  {make_ansi(str(lvl), ["Bold", "Blue Text" if progress else "White Text"])} {xp_bar} {make_ansi(str(lvl + 1), ["Bold", "White Text"])}  ",
+        f"  {make_ansi(str(lvl), ['Bold', xp_bar_color_str if progress else 'White Text'])} {xp_bar} {make_ansi(str(lvl + 1), ['Bold', 'White Text'])}  ",
         "⠀",
         f"  {xp} / {xp + next_lvl_xp - xp_progress} XP  ·  RANK #{rank}  ",
         "⠀",
@@ -237,12 +238,17 @@ class DenylistScreen(OriginalMiruCtxScreen):
     back = BackButton()
 
     async def build_content(self) -> menu.ScreenContent:
-        (deny_channels, deny_roles, deny_users) = settings["Denylist"].values()
-        denylist = settings["Denylist"]
+        denylist_settings: dict = settings["Denylist"]
+        (deny_channels, deny_roles, deny_users) = list(denylist_settings.values())[-3:]
+        
         return menu.ScreenContent(
             embed=hikari.Embed(
                 title="Denylist Settings",
                 description="\n".join([
+                    *[
+                        f"- **{setting}**: {value}"
+                        for setting, value in dict(list(denylist_settings.items())[:-3])
+                    ],
                     f"- Denied Channels: {', '.join([
                         f'https://discord.com/channels/{GUILD_ID}/{channel}'
                         for channel in deny_channels
@@ -288,13 +294,19 @@ class LevelUpMessageScreen(OriginalMiruCtxScreen):
     back = BackButton()
     
     async def build_content(self) -> menu.ScreenContent:
-        (channel, message) = settings["Level Up Messages"].values()
+        level_up_settings: dict = settings["Level Up Messages"]
+        (channel, message) = list(level_up_settings.values())[-2:]
+
         user = self.original_ctx.user
         level = random.randint(1, 100)
         return menu.ScreenContent(
             embed=hikari.Embed(
                 title="Level Up Message Settings",
                 description="\n".join([
+                    *[
+                        f"- **{setting}**: {value}"
+                        for setting, value in dict(list(level_up_settings.items())[:-2])
+                    ],
                     f"- **Channel**: {f'https://discord.com/channels/{GUILD_ID}/{channel}' or None}",
                     f"- **Message**: {
                         f'\n{message.format_map(locals())}'
@@ -309,13 +321,20 @@ class RankCardScreen(OriginalMiruCtxScreen):
     back = BackButton()
     
     async def build_content(self) -> menu.ScreenContent:
-        (xp_bar_color,) = settings["Rank Cards"].values()
+        rank_card_settings: dict = settings["Rank Cards"]
+        (xp_bar_color,) = list(rank_card_settings.values())[-1:]
         return menu.ScreenContent(
             embed=hikari.Embed(
                 title="Rank Card Settings",
-                description=f"XP Bar Color: ```ansi\n{make_ansi(
-                    xp_bar_color, [f'{xp_bar_color} Text', 'Bold']
-                )}```"
+                description="\n".join([
+                    *[
+                        f"- **{setting}**: {value}"
+                        for setting, value in dict(list(rank_card_settings.items())[:-1])
+                    ],
+                    f"**XP Bar Color**: ```ansi\n{make_ansi(
+                        xp_bar_color, [f'{xp_bar_color} Text', 'Bold']
+                    )}```"
+                ])
             )
         )
     
