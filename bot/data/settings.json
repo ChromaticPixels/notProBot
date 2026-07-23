@@ -7,13 +7,22 @@
         "Next Level Formula": "Default (not editable currently)"
     },
     "Denylist": {
-        "Denied Channels": [959566472001228800, 959566471539863625],
-        "Denied Roles": [1517650914641576066, 1526998413160484934],
-        "Denied Users": [282859044593598464, 518129184338345985]
+        "Denied Channels": [
+            959566472001228800,
+            959566471539863625
+        ],
+        "Denied Roles": [
+            1517650914641576066,
+            1526998413160484934
+        ],
+        "Denied Users": [
+            282859044593598464,
+            518129184338345985
+        ]
     },
     "Leaderboards": {
         "Yearly": false,
-        "Monthly": true,
+        "Monthly": false,
         "Weekly": false,
         "Daily": false,
         "Start Week On Monday": false
