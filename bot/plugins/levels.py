@@ -6,6 +6,7 @@ import math
 from datetime import datetime, timezone, timedelta
 from collections.abc import Iterable
 from sqlite3 import Row
+from typing import Any, override
 
 import crescent
 import hikari
@@ -78,6 +79,16 @@ SETTINGS_STR_OPTIONS = {
     }
 }
 
+DISABLED_SETTINGS = {
+    "Calculation": {"Next Level Formula"},
+    "Denylist": {},
+    "Leaderboards": {},
+    "Level Roles": {},
+    "Level Up Messages": {},
+    "Rank Cards": {},
+    "Logging Channels": {},
+
+}
 
 # inits
 
@@ -258,7 +269,7 @@ class BoolOptionScreen(menu.Screen):
     setting: str
     value: bool
 
-    def __init__(self, menu, category: str, data: tuple[str, bool], *args, **kwargs) -> None:
+    def __init__(self, menu: menu.Menu, category: str, data: tuple[str, bool], *args, **kwargs) -> None:
         super().__init__(menu, *args, **kwargs)
         self.category = category
         self.setting, self.value = data
@@ -282,7 +293,7 @@ class StrOptionScreen(menu.Screen):
     setting: str
     value: str
 
-    def __init__(self, menu, category: str, data: tuple[str, str], *args, **kwargs) -> None:
+    def __init__(self, menu: menu.Menu, category: str, data: tuple[str, str], *args, **kwargs) -> None:
         super().__init__(menu, *args, **kwargs)
         self.category = category
         self.setting, self.value = data
@@ -308,29 +319,123 @@ class StrOptionScreen(menu.Screen):
     back = BackAllButton()
 
 
-class CalculationScreen(OriginalMiruCtxScreen):
+class CheckInputModal(miru.Modal):
+    original_ctx: miru.ViewContext
+    category: str
+    setting: str
+    value: str | int
+    tied_menu: menu.Menu | None
+
+    def __init__(self, ctx: miru.ViewContext, category: str, data: tuple[str, str | int], tied_menu: menu.Menu | None = None, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.original_ctx = ctx
+        self.category = category
+        self.setting, self.value = data
+        self.tied_menu = tied_menu
+        self.add_item(miru.TextInput(
+            label=self.setting,
+            value=str(self.value),
+            required=True,
+            custom_id="input"
+        ))
+
+    async def modal_check(self, ctx: miru.ModalContext) -> bool:
+        input_str = ctx.values[self.get_item_by_id("input")]
+        print(input_str.isdigit())
+        match self.value:
+            case str():
+                return True
+            case int():
+                return input_str.isdigit()
+            case _:
+                return True
+    
+    async def callback(self, ctx: miru.ModalContext) -> None:
+        input_str = ctx.values[self.get_item_by_id("input")]
+        match self.value:
+            case str():
+                set_setting(self.category, self.setting, input_str)
+            case int():
+                set_setting(self.category, self.setting, int(input_str))
+        self.stop()
+
+
+class SettingCategoryScreen(OriginalMiruCtxScreen):
+    category: str
+    id: int = random.randint(0, 999999)
+
+    def __init__(self, tied_menu, *args, **kwargs) -> None:
+        super().__init__(tied_menu, *args, **kwargs)
+        self.get_item_by(lambda x: isinstance(x, menu.ScreenTextSelect)).options = [ # type: ignore
+            miru.SelectOption(label=setting, description=str(value))
+            for setting, value in settings[self.category].items()
+            if setting not in DISABLED_SETTINGS[self.category]
+        ]
+
     async def build_content(self) -> menu.ScreenContent:
         return menu.ScreenContent(
             embed=hikari.Embed(
-                title="Calculation Settings",
+                title=f"{self.category.removesuffix('s')} Settings",
                 description="\n".join([
                     f"- **{setting}**: {value}"
-                    for setting, value in settings["Calculation"].items()
+                    for setting, value in settings[self.category].items()
                 ])
             )
         )
 
-    back = BackAllButton()
-    
+    @menu.text_select(
+        placeholder="Select a setting to modify...",
+        options=[miru.SelectOption(label="Something went wrong (don't select this!)")]
+    )
+    async def setting_select(self, ctx: miru.ViewContext, select: miru.TextSelect) -> None:
+        setting = select.values[0]
+        setting_tuple = (setting, settings[self.category][setting])
+        match self.category:
+            case "Calculation":
+                match setting:
+                    case "Message XP":
+                        set_setting(self.category, setting, not settings[self.category][setting])
+                        await self.menu.push(make_setting_option_screen(self.category, self.menu, ctx))
+                    case "Cooldown Seconds" | "Minimum XP" | "Maximum XP":
+                        modal = CheckInputModal(ctx, self.category, setting_tuple, self.menu, title=f"Modify {setting}")
+                        await ctx.respond_with_modal(modal)
+                        await modal.wait()
+                        if modal.last_context is not None:
+                            await modal.last_context.defer()
+                        else:
+                            modal.stop()
+                        await self.menu.push(make_setting_option_screen(self.category, self.menu, self.original_ctx))
+            case "Denylist":
+                pass
+            case "Leaderboards":
+                set_setting(self.category, setting, not settings[self.category][setting])
+                await self.menu.push(make_setting_option_screen(self.category, self.menu, ctx))
+            case "Level Roles":
+                pass
+            case "Level Up Messages":
+                pass
+            case "Rank Cards":
+                await self.menu.push(StrOptionScreen(self.menu, self.category, setting_tuple))
+            case "Logging Channels":
+                pass
 
-class DenylistScreen(OriginalMiruCtxScreen):
+    back = BackAllButton()
+
+
+class CalculationScreen(SettingCategoryScreen):
+    category = "Calculation"
+
+
+class DenylistScreen(SettingCategoryScreen):
+    category = "Denylist"
+
     async def build_content(self) -> menu.ScreenContent:
-        denylist_settings: dict = settings["Denylist"]
+        denylist_settings: dict = settings[self.category]
         (deny_channels, deny_roles, deny_users) = list(denylist_settings.values())[-3:]
         
         return menu.ScreenContent(
             embed=hikari.Embed(
-                title="Denylist Settings",
+                title=f"{self.category} Settings",
                 description="\n".join([
                     *[
                         f"- **{setting}**: {value}"
@@ -345,69 +450,39 @@ class DenylistScreen(OriginalMiruCtxScreen):
                 ])
             )
         )
-
-    back = BackAllButton()
     
 
-class LeaderboardScreen(OriginalMiruCtxScreen):
-    def __init__(self, mmenu, *args, **kwargs) -> None:
-        super().__init__(mmenu, *args, **kwargs)
-        self.get_item_by_id("select").options = [ # type: ignore
-            miru.SelectOption(label=setting, description=str(value))
-            for setting, value in settings["Leaderboards"].items()
-        ]
-    
+class LeaderboardScreen(SettingCategoryScreen):
+    category = "Leaderboards"
+
+
+class LevelRoleScreen(SettingCategoryScreen):
+    category = "Level Roles"
+
     async def build_content(self) -> menu.ScreenContent:
         return menu.ScreenContent(
             embed=hikari.Embed(
-                title="Leaderboard Settings",
-                description="\n".join([
-                    f"- **{setting}**: {value}"
-                    for setting, value in settings["Leaderboards"].items()
-                ])
-            )
-        )
-
-    @menu.text_select(
-        custom_id="select",
-        placeholder="Select a setting to modify...",
-        options=[
-            miru.SelectOption(label=setting)
-            for setting in settings["Leaderboards"].keys()
-        ]
-    )
-    async def setting_select(self, ctx: miru.ViewContext, select: miru.TextSelect) -> None:
-        setting_tuple = (select.values[0], settings["Leaderboards"][select.values[0]])
-        await self.menu.push(BoolOptionScreen(self.menu, "Leaderboards", setting_tuple))
-
-    back = BackAllButton()
-    
-
-class LevelRoleScreen(OriginalMiruCtxScreen):
-    async def build_content(self) -> menu.ScreenContent:
-        return menu.ScreenContent(
-            embed=hikari.Embed(
-                title="Level Role Settings",
+                title=f"{self.category} Settings",
                 description="\n".join([
                     f"- <@&{role}>: Level {lvl}"
-                    for role, lvl in settings["Level Roles"].items()
+                    for role, lvl in settings[self.category].items()
                 ]) or "No active level roles."
             )
         )
-
-    back = BackAllButton()
     
 
-class LevelUpMessageScreen(OriginalMiruCtxScreen):
+class LevelUpMessageScreen(SettingCategoryScreen):
+    category = "Level Up Messages"
+
     async def build_content(self) -> menu.ScreenContent:
-        level_up_settings: dict = settings["Level Up Messages"]
+        level_up_settings: dict = settings[self.category]
         (channel, message) = list(level_up_settings.values())[-2:]
 
         user = self.original_ctx.user
         level = random.randint(1, 100)
         return menu.ScreenContent(
             embed=hikari.Embed(
-                title="Level Up Message Settings",
+                title=f"{self.category} Settings",
                 description="\n".join([
                     *[
                         f"- **{setting}**: {value}"
@@ -421,18 +496,18 @@ class LevelUpMessageScreen(OriginalMiruCtxScreen):
                 ])
             )
         )
-
-    back = BackAllButton()
     
 
-class RankCardScreen(OriginalMiruCtxScreen):
+class RankCardScreen(SettingCategoryScreen):
+    category = "Rank Cards"
+
     async def build_content(self) -> menu.ScreenContent:
-        rank_card_settings: dict = settings["Rank Cards"]
+        rank_card_settings: dict = settings[self.category]
         (xp_bar_color,) = list(rank_card_settings.values())[-1:]
         
         return menu.ScreenContent(
             embed=hikari.Embed(
-                title="Rank Card Settings",
+                title=f"{self.category} Settings",
                 description="\n".join([
                     *[
                         f"- **{setting}**: {value}"
@@ -445,33 +520,19 @@ class RankCardScreen(OriginalMiruCtxScreen):
             )
         )
 
-    @menu.text_select(
-        custom_id="select",
-        placeholder="Select a setting to modify...",
-        options=[
-            miru.SelectOption(label=setting)
-            for setting in settings["Rank Cards"].keys()
-        ]
-    )
-    async def setting_select(self, ctx: miru.ViewContext, select: miru.TextSelect) -> None:
-        setting_tuple = (select.values[0], settings["Rank Cards"][select.values[0]])
-        await self.menu.push(StrOptionScreen(self.menu, "Rank Cards", setting_tuple))
+class LoggingChannelScreen(SettingCategoryScreen):
+    category = "Logging Channels"
 
-    back = BackAllButton()
-
-class LoggingChannelScreen(OriginalMiruCtxScreen):
     async def build_content(self) -> menu.ScreenContent:
         return menu.ScreenContent(
             embed=hikari.Embed(
-                title="Logging Channel Settings",
+                title=f"{self.category} Settings",
                 description="\n".join([
                     f"- **{setting}**: https://discord.com/channels/{GUILD_ID}/{channel}"
-                    for setting, channel in settings["Logging Channels"].items()
+                    for setting, channel in settings[self.category].items()
                 ])
             )
         )
-
-    back = BackAllButton()
 
 
 class SettingsScreen(menu.Screen):
@@ -763,7 +824,7 @@ async def manage_cooldown_hook(event: hikari.MessageCreateEvent) -> None:
         return
     
     ids_on_cooldoWn.add(user.id)
-    await asyncio.sleep(settings["Calculation"]["Cooldown"])
+    await asyncio.sleep(settings["Calculation"]["Cooldown Seconds"])
     ids_on_cooldoWn.remove(user.id)
 
 
