@@ -6,7 +6,6 @@ import math
 from datetime import datetime, timezone, timedelta
 from collections.abc import Iterable
 from sqlite3 import Row
-from typing import Any, override
 
 import crescent
 import hikari
@@ -100,7 +99,6 @@ aiosqlite.register_adapter(hikari.Snowflake, lambda sf: int(sf))
 with open("bot/data/settings.json", "r") as f:
     settings: dict = json.load(f)
 
-# ids get added/removed on message to control xp gain per cooldown
 ids_on_cooldoWn = set()
 
 
@@ -202,13 +200,20 @@ def make_setting_option_screen(category: str, menu: menu.Menu, ctx: miru.ViewCon
 # settings
 
 
-def set_setting(category: str, setting: str, value: bool | int | str | list) -> None:
+def set_setting(category: str, setting: str, value: bool | int | str | list | None) -> None:
     settings[category][setting] = value
     with open("bot/data/settings.json", "w") as f:
         json.dump(settings, f)
 
 
-# classes
+def del_settings(category: str, vals: list[str]) -> None:
+    for setting in vals:
+        del settings[category][setting]
+    with open("bot/data/settings.json", "w") as f:
+        json.dump(settings, f)
+
+
+# buttons
 
 
 class BackButton(menu.ScreenButton):
@@ -220,11 +225,106 @@ class BackButton(menu.ScreenButton):
 
 
 class BackAllButton(menu.ScreenButton):
-    def __init__(self) -> None:
+    def __init__(self, row=None) -> None:
         super().__init__(label="Back", style=hikari.ButtonStyle.SECONDARY)
-
+        self.row = row
+        
     async def callback(self, ctx: miru.ViewContext) -> None:
         await self.menu.pop_until_root()
+
+
+class ChooseAddButton(menu.ScreenButton):
+    def __init__(self) -> None:
+        super().__init__(label="Add selected values", style=hikari.ButtonStyle.SUCCESS)
+        self.position = 0
+        self.row = 4
+
+    async def callback(self, ctx: miru.ViewContext) -> None:
+        screen = self.menu.current_screen
+        assert isinstance(screen, (ChannelOptionScreen, UserOptionScreen, RoleOptionScreen))
+        assert isinstance(screen.value, list)
+        old_value = settings[screen.category][screen.setting]
+        set_setting(screen.category, screen.setting, old_value + [x for x in screen.value if x not in old_value])
+        await self.menu.push(make_setting_option_screen(screen.category, screen.menu, ctx))
+
+
+class ChooseRemoveButton(menu.ScreenButton):
+    def __init__(self) -> None:
+        super().__init__(label="Remove selected values", style=hikari.ButtonStyle.DANGER)
+        self.position = 1
+        self.row = 4
+
+    async def callback(self, ctx: miru.ViewContext) -> None:
+        screen = self.menu.current_screen
+        assert isinstance(screen, (ChannelOptionScreen, UserOptionScreen, RoleOptionScreen))
+        assert isinstance(screen.value, list)
+        old_value = settings[screen.category][screen.setting]
+        set_setting(screen.category, screen.setting, [x for x in old_value if x not in screen.value])
+        await self.menu.push(make_setting_option_screen(screen.category, screen.menu, ctx))
+
+
+class ChooseNoneButton(menu.ScreenButton):
+    def __init__(self) -> None:
+        super().__init__(label="Choose none / remove all", style=hikari.ButtonStyle.DANGER)
+        self.row = 4
+
+    async def callback(self, ctx: miru.ViewContext) -> None:
+        screen = self.menu.current_screen
+        assert isinstance(screen, (ChannelOptionScreen, UserOptionScreen, RoleOptionScreen))
+        set_setting(screen.category, screen.setting, None if screen.singular else [])
+        await self.menu.push(make_setting_option_screen(screen.category, screen.menu, ctx))
+
+
+class AddEditLevelRoleButton(menu.ScreenButton):
+    def __init__(self,) -> None:
+        super().__init__(label="Add/edit selected roles", style=hikari.ButtonStyle.SUCCESS)
+        self.position = 0
+        self.row = 4
+
+    async def callback(self, ctx: miru.ViewContext) -> None:
+        screen = self.menu.current_screen
+        assert isinstance(screen, LevelRoleScreen)
+        modal = LevelRoleInputModal("Level Roles")
+        await ctx.respond_with_modal(modal)
+        await modal.wait()
+        if modal.last_context is not None:
+            lvl = int(modal.last_context.get_value_by(lambda x: isinstance(x, miru.TextInput)))
+            for role in screen.value:
+                set_setting("Level Roles", str(role), lvl)
+            await modal.last_context.defer()
+        else:
+            modal.stop()
+        await self.menu.push(make_setting_option_screen("Level Roles", screen.menu, ctx))
+
+
+class RemoveLevelRoleButton(menu.ScreenButton):
+    def __init__(self) -> None:
+        super().__init__(label="Remove selected roles", style=hikari.ButtonStyle.DANGER)
+        self.position = 1
+        self.row = 4
+
+    async def callback(self, ctx: miru.ViewContext) -> None:
+        screen = self.menu.current_screen
+        assert isinstance(screen, LevelRoleScreen)
+        current_roles: dict[str, int] = settings["Level Roles"]
+        del_settings("Level Roles", [str(role) for role in screen.value if str(role) in current_roles.keys()])
+        await self.menu.push(make_setting_option_screen("Level Roles", screen.menu, ctx))
+
+
+class RemoveAllLevelRoleButton(menu.ScreenButton):
+    def __init__(self) -> None:
+        super().__init__(label="Choose none / remove all", style=hikari.ButtonStyle.DANGER)
+        self.row = 4
+
+    async def callback(self, ctx: miru.ViewContext) -> None:
+        screen = self.menu.current_screen
+        assert isinstance(screen, LevelRoleScreen)
+        del_settings("Level Roles", list(settings["Level Roles"].keys()))
+        await self.menu.push(make_setting_option_screen("Level Roles", screen.menu, ctx))
+
+
+# views
+
 
 class OriginalCrescentCtxView(miru.View):
     original_ctx: crescent.Context
@@ -255,6 +355,68 @@ class ConfirmView(OriginalCrescentCtxView):
         return ctx.user.id == self.original_ctx.user.id
 
 
+# modals
+
+
+class CheckInputModal(miru.Modal):
+    original_ctx: miru.ViewContext
+    category: str
+    setting: str
+    value: str | int
+
+    def __init__(self, ctx: miru.ViewContext, category: str, data: tuple[str, str | int], tied_menu: menu.Menu | None = None, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.original_ctx = ctx
+        self.category = category
+        self.setting, self.value = data
+        self.add_item(miru.TextInput(
+            label=self.setting,
+            value=str(self.value),
+            required=True,
+            style = hikari.TextInputStyle.PARAGRAPH if isinstance(self.value, str) else hikari.TextInputStyle.SHORT
+        ))
+
+    async def modal_check(self, ctx: miru.ModalContext) -> bool:
+        input_str = ctx.values[self.get_item_by(lambda x: isinstance(x, miru.TextInput))]
+        match self.value:
+            case str():
+                return True
+            case int():
+                return input_str.isdigit()
+            case _:
+                return True
+    
+    async def callback(self, ctx: miru.ModalContext) -> None:
+        input_str = ctx.values[self.get_item_by(lambda x: isinstance(x, miru.TextInput))]
+        match self.value:
+            case str():
+                set_setting(self.category, self.setting, input_str)
+            case int():
+                set_setting(self.category, self.setting, int(input_str))
+        self.stop()
+
+
+class LevelRoleInputModal(miru.Modal, title="Choose Level"):
+    def __init__(self, category: str, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.category = category
+        
+    lvl = miru.TextInput(
+        label="Level",
+        required=True
+    )
+
+    async def modal_check(self, ctx: miru.ModalContext) -> bool:
+        input_str = ctx.values[self.get_item_by(lambda x: isinstance(x, miru.TextInput))]
+        return input_str.isdigit()
+    
+    async def callback(self, ctx: miru.ModalContext) -> None:
+        self.stop()
+
+
+# screens
+
+
 class OriginalMiruCtxScreen(menu.Screen):
     original_ctx: miru.ViewContext
 
@@ -263,50 +425,23 @@ class OriginalMiruCtxScreen(menu.Screen):
         self.original_ctx = ctx
 
 
-class BoolOptionScreen(menu.Screen):
-    back = BackButton()
-    category: str
-    setting: str
-    value: bool
-
-    def __init__(self, menu: menu.Menu, category: str, data: tuple[str, bool], *args, **kwargs) -> None:
-        super().__init__(menu, *args, **kwargs)
-        self.category = category
-        self.setting, self.value = data
-
-    async def build_content(self) -> menu.ScreenContent:
-        return menu.ScreenContent(f"**{self.setting}**: {self.value}")
-    
-    @menu.button(label="Enable", style=hikari.ButtonStyle.SUCCESS)
-    async def confirm_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
-        set_setting(self.category, self.setting, True)
-        await self.menu.push(make_setting_option_screen(self.category, self.menu, ctx))
-    
-    @menu.button(label="Disable", style=hikari.ButtonStyle.DANGER)
-    async def cancel_button(self, ctx: miru.ViewContext, button: miru.Button) -> None:
-        set_setting(self.category, self.setting, False)
-        await self.menu.push(make_setting_option_screen(self.category, self.menu, ctx))
-
-
 class StrOptionScreen(menu.Screen):
     category: str
     setting: str
     value: str
 
-    def __init__(self, menu: menu.Menu, category: str, data: tuple[str, str], *args, **kwargs) -> None:
-        super().__init__(menu, *args, **kwargs)
+    def __init__(self, tied_menu: menu.Menu, category: str, data: tuple[str, str], *args, **kwargs) -> None:
+        super().__init__(tied_menu, *args, **kwargs)
         self.category = category
         self.setting, self.value = data
-        self.get_item_by_id("select").options = [ # type: ignore
-            miru.SelectOption(label=option)
-            for option in SETTINGS_STR_OPTIONS[self.setting]
-        ]
+        select = self.get_item_by(lambda x: isinstance(x, menu.ScreenTextSelect))
+        assert isinstance(select, menu.ScreenTextSelect)
+        select.options = [miru.SelectOption(label=option) for option in SETTINGS_STR_OPTIONS[self.setting]]
 
     async def build_content(self) -> menu.ScreenContent:
         return menu.ScreenContent(f"**{self.setting}**: {self.value}")
 
     @menu.text_select(
-        custom_id="select",
         placeholder="Select an option...",
         options=[miru.SelectOption(label="Something went wrong (don't select this!)")]
     )
@@ -319,55 +454,155 @@ class StrOptionScreen(menu.Screen):
     back = BackAllButton()
 
 
-class CheckInputModal(miru.Modal):
-    original_ctx: miru.ViewContext
+class ChannelOptionScreen(menu.Screen):
     category: str
     setting: str
-    value: str | int
-    tied_menu: menu.Menu | None
+    value: None | int | list[int]
+    singular: bool
 
-    def __init__(self, ctx: miru.ViewContext, category: str, data: tuple[str, str | int], tied_menu: menu.Menu | None = None, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.original_ctx = ctx
+    def __init__(self, tied_menu: menu.Menu, category: str, data: tuple[str, None | int | list[int]], singular: bool = False, *args, **kwargs) -> None:
+        super().__init__(tied_menu, *args, **kwargs)
         self.category = category
         self.setting, self.value = data
-        self.tied_menu = tied_menu
-        self.add_item(miru.TextInput(
-            label=self.setting,
-            value=str(self.value),
-            required=True,
-            custom_id="input"
-        ))
+        self.singular = singular
+        select = self.get_item_by(lambda x: isinstance(x, menu.ScreenChannelSelect))
+        assert isinstance(select, menu.ScreenChannelSelect)
+        if not self.singular:
+            select.max_values = 25
+            select.placeholder = "Select channels..."
 
-    async def modal_check(self, ctx: miru.ModalContext) -> bool:
-        input_str = ctx.values[self.get_item_by_id("input")]
-        print(input_str.isdigit())
-        match self.value:
-            case str():
-                return True
-            case int():
-                return input_str.isdigit()
-            case _:
-                return True
-    
-    async def callback(self, ctx: miru.ModalContext) -> None:
-        input_str = ctx.values[self.get_item_by_id("input")]
-        match self.value:
-            case str():
-                set_setting(self.category, self.setting, input_str)
-            case int():
-                set_setting(self.category, self.setting, int(input_str))
-        self.stop()
+    async def build_content(self) -> menu.ScreenContent:
+        self.menu.add_item(ChooseNoneButton())
+        return menu.ScreenContent(f"**{self.setting}**: {
+            (f'https://discord.com/channels/{GUILD_ID}/{self.value}' if self.value is not None else None)
+            if self.singular else ', '.join([
+                f'https://discord.com/channels/{GUILD_ID}/{channel}'
+                for channel in self.value # type: ignore
+            ])
+        }")
+
+    @menu.channel_select(
+        placeholder="Select a channel...",
+        channel_types=[
+            hikari.ChannelType.GUILD_NEWS,
+            hikari.ChannelType.GUILD_NEWS_THREAD,
+            hikari.ChannelType.GUILD_PRIVATE_THREAD,
+            hikari.ChannelType.GUILD_PUBLIC_THREAD,
+            hikari.ChannelType.GUILD_STAGE,
+            hikari.ChannelType.GUILD_TEXT,
+            hikari.ChannelType.GUILD_VOICE
+        ],
+        min_values=0
+    )
+    async def setting_select(self, ctx: miru.ViewContext, select: miru.ChannelSelect) -> None:
+        self.value = select.values[0].id if self.singular else [channel.id for channel in select.values]
+        if self.singular:
+            set_setting(self.category, self.setting, self.value)
+            await self.menu.push(make_setting_option_screen(self.category, self.menu, ctx))
+        else:
+            self.menu.remove_item(self.menu.get_item_by(lambda x: isinstance(x, ChooseNoneButton)))
+            self.menu.add_item(ChooseAddButton())
+            self.menu.add_item(ChooseRemoveButton())
+            await self.menu.update_message()
+
+    back = BackAllButton(row=4)
+       
+
+class UserOptionScreen(menu.Screen):
+    category: str
+    setting: str
+    value: None | int | list[int]
+    singular: bool
+
+    def __init__(self, tied_menu: menu.Menu, category: str, data: tuple[str, None | int | list[int]], singular: bool = False, *args, **kwargs) -> None:
+        super().__init__(tied_menu, *args, **kwargs)
+        self.category = category
+        self.setting, self.value = data
+        self.singular = singular
+        if not self.singular:
+            select = self.get_item_by(lambda x: isinstance(x, menu.ScreenUserSelect))
+            assert isinstance(select, menu.ScreenUserSelect)
+            select.max_values = 25
+            select.placeholder = "Select users..."
+
+    async def build_content(self) -> menu.ScreenContent:
+        self.menu.add_item(ChooseNoneButton())
+        return menu.ScreenContent(f"**{self.setting}**: {
+            (f'<@{self.value}>' if self.value is not None else None)
+            if self.singular else ', '.join([f'<@{user}>' for user in self.value]) # type: ignore
+        }")
+
+    @menu.user_select(
+        placeholder="Select a user...",
+        min_values=0
+    )
+    async def setting_select(self, ctx: miru.ViewContext, select: miru.UserSelect) -> None:
+        self.value = select.values[0].id if self.singular else [user.id for user in select.values]
+        if self.singular:
+            set_setting(self.category, self.setting, self.value)
+            await self.menu.push(make_setting_option_screen(self.category, self.menu, ctx))
+        else:
+            self.menu.remove_item(self.menu.get_item_by(lambda x: isinstance(x, ChooseNoneButton)))
+            self.menu.add_item(ChooseAddButton())
+            self.menu.add_item(ChooseRemoveButton())
+            await self.menu.update_message()
+
+    back = BackAllButton(row=4)
+
+
+class RoleOptionScreen(menu.Screen):
+    category: str
+    setting: str
+    value: None | int | list[int]
+    singular: bool
+
+    def __init__(self, tied_menu: menu.Menu, category: str, data: tuple[str, None | int | list[int]], singular: bool = False, *args, **kwargs) -> None:
+        super().__init__(tied_menu, *args, **kwargs)
+        self.category = category
+        self.setting, self.value = data
+        self.singular = singular
+        if not self.singular:
+            select = self.get_item_by(lambda x: isinstance(x, menu.ScreenRoleSelect))
+            assert isinstance(select, menu.ScreenRoleSelect)
+            select.max_values = 25
+            select.placeholder = "Select roles..."
+
+    async def build_content(self) -> menu.ScreenContent:
+        self.menu.add_item(ChooseNoneButton())
+        return menu.ScreenContent(f"**{self.setting}**: {
+            (f'<@&{self.value}>' if self.value is not None else None)
+            if self.singular else ', '.join([f'<@&{role}>' for role in self.value]) # type: ignore
+        }")
+
+    @menu.role_select(
+        placeholder="Select a role...",
+        min_values=0
+    )
+    async def setting_select(self, ctx: miru.ViewContext, select: miru.RoleSelect) -> None:
+        self.value = select.values[0].id if self.singular else [role.id for role in select.values]
+        if self.singular:
+            set_setting(self.category, self.setting, self.value)
+            await self.menu.push(make_setting_option_screen(self.category, self.menu, ctx))
+        else:
+            self.menu.remove_item(self.menu.get_item_by(lambda x: isinstance(x, ChooseNoneButton)))
+            self.menu.add_item(ChooseAddButton())
+            self.menu.add_item(ChooseRemoveButton())
+            await self.menu.update_message()
+
+    back = BackAllButton(row=4)
 
 
 class SettingCategoryScreen(OriginalMiruCtxScreen):
     category: str
     id: int = random.randint(0, 999999)
 
-    def __init__(self, tied_menu, *args, **kwargs) -> None:
+    def __init__(self, tied_menu: menu.Menu, *args, **kwargs) -> None:
         super().__init__(tied_menu, *args, **kwargs)
         self.get_item_by(lambda x: isinstance(x, menu.ScreenTextSelect)).options = [ # type: ignore
-            miru.SelectOption(label=setting, description=str(value))
+            miru.SelectOption(
+                label=setting,
+                description=(str(value)[:97] + '...') if len(str(value)) > 97 else str(value)
+            )
             for setting, value in settings[self.category].items()
             if setting not in DISABLED_SETTINGS[self.category]
         ]
@@ -390,34 +625,29 @@ class SettingCategoryScreen(OriginalMiruCtxScreen):
     async def setting_select(self, ctx: miru.ViewContext, select: miru.TextSelect) -> None:
         setting = select.values[0]
         setting_tuple = (setting, settings[self.category][setting])
-        match self.category:
-            case "Calculation":
-                match setting:
-                    case "Message XP":
-                        set_setting(self.category, setting, not settings[self.category][setting])
-                        await self.menu.push(make_setting_option_screen(self.category, self.menu, ctx))
-                    case "Cooldown Seconds" | "Minimum XP" | "Maximum XP":
-                        modal = CheckInputModal(ctx, self.category, setting_tuple, self.menu, title=f"Modify {setting}")
-                        await ctx.respond_with_modal(modal)
-                        await modal.wait()
-                        if modal.last_context is not None:
-                            await modal.last_context.defer()
-                        else:
-                            modal.stop()
-                        await self.menu.push(make_setting_option_screen(self.category, self.menu, self.original_ctx))
-            case "Denylist":
-                pass
-            case "Leaderboards":
+        match setting:
+            case "Message XP" | "Yearly" | "Monthly" | "Weekly" | "Daily":
                 set_setting(self.category, setting, not settings[self.category][setting])
                 await self.menu.push(make_setting_option_screen(self.category, self.menu, ctx))
-            case "Level Roles":
-                pass
-            case "Level Up Messages":
-                pass
+            case "Level Up Channel" | "Manual XP Channel":
+                await self.menu.push(ChannelOptionScreen(self.menu, self.category, setting_tuple, singular=True))
+            case "Denied Channels":
+                await self.menu.push(ChannelOptionScreen(self.menu, self.category, setting_tuple))
+            case "Denied Users":
+                await self.menu.push(UserOptionScreen(self.menu, self.category, setting_tuple))
+            case "Denied Roles":
+                await self.menu.push(RoleOptionScreen(self.menu, self.category, setting_tuple))
             case "Rank Cards":
                 await self.menu.push(StrOptionScreen(self.menu, self.category, setting_tuple))
-            case "Logging Channels":
-                pass
+            case "Level Up Message" | "Cooldown Seconds" | "Minimum XP" | "Maximum XP":
+                modal = CheckInputModal(ctx, self.category, setting_tuple, self.menu, title=f"Modify {setting}")
+                await ctx.respond_with_modal(modal)
+                await modal.wait()
+                if modal.last_context is not None:
+                    await modal.last_context.defer()
+                else:
+                    modal.stop()
+                await self.menu.push(make_setting_option_screen(self.category, self.menu, self.original_ctx))
 
     back = BackAllButton()
 
@@ -456,19 +686,37 @@ class LeaderboardScreen(SettingCategoryScreen):
     category = "Leaderboards"
 
 
-class LevelRoleScreen(SettingCategoryScreen):
-    category = "Level Roles"
+class LevelRoleScreen(OriginalMiruCtxScreen):
+    value: list[int]
+
+    def __init__(self, tied_menu: menu.Menu, *args, **kwargs) -> None:
+        super().__init__(tied_menu, *args, **kwargs)
 
     async def build_content(self) -> menu.ScreenContent:
+        self.menu.add_item(RemoveAllLevelRoleButton())
         return menu.ScreenContent(
             embed=hikari.Embed(
-                title=f"{self.category} Settings",
+                title=f"Level Role Settings",
                 description="\n".join([
                     f"- <@&{role}>: Level {lvl}"
-                    for role, lvl in settings[self.category].items()
+                    for role, lvl in settings["Level Roles"].items()
                 ]) or "No active level roles."
             )
         )
+
+    @menu.role_select(
+        placeholder="Select roles...",
+        min_values=0,
+        max_values=25
+    )
+    async def setting_select(self, ctx: miru.ViewContext, select: miru.RoleSelect) -> None:
+        self.value = [role.id for role in select.values]
+        self.menu.remove_item(self.menu.get_item_by(lambda x: isinstance(x, RemoveAllLevelRoleButton)))
+        self.menu.add_item(AddEditLevelRoleButton())
+        self.menu.add_item(RemoveLevelRoleButton())
+        await self.menu.update_message()
+
+    back = BackAllButton(row=4)
     
 
 class LevelUpMessageScreen(SettingCategoryScreen):
@@ -528,7 +776,7 @@ class LoggingChannelScreen(SettingCategoryScreen):
             embed=hikari.Embed(
                 title=f"{self.category} Settings",
                 description="\n".join([
-                    f"- **{setting}**: https://discord.com/channels/{GUILD_ID}/{channel}"
+                    f"- **{setting}**: {f'https://discord.com/channels/{GUILD_ID}/{channel}' if channel else channel}"
                     for setting, channel in settings[self.category].items()
                 ])
             )
@@ -705,9 +953,9 @@ async def handle_lvl_increase(user: hikari.User, lvl: int, app: hikari.RESTAware
                 reason=f"Level up to {lvl}\n (≥ Level {role_lvl})"
             )
 
-    channel = settings["Level Up Messages"]["Channel"]
+    channel = settings["Level Up Messages"]["Level Up Channel"]
     message = (
-        settings["Level Up Messages"]["Message"]
+        settings["Level Up Messages"]["Level Up Message"]
         or "{user} is now level {level}!"
     ).replace("{level}", "{lvl}").format_map(locals())
     if channel is not None:
@@ -751,18 +999,12 @@ async def handle_msg_xp_gain(event: hikari.MessageCreateEvent) -> None:
     await add_xp_db(user.id, xp)
     await handle_xp_update(user, xp, event.app)
 
-    # currently for testing
-    # possibly make ephemeral as a prod feature?
-    # would require user settings but would be useful for admins
-    # but i am the only admin who debugs xp gain so meh
-    await event.message.respond("This Pro-flop is Pissing me off...")
-
 
 # logging
 
 
 async def log_manual_xp(ctx: crescent.Context, xp=None) -> None:
-    channel_id = settings["Logging Channels"]["Manual XP"]
+    channel_id = settings["Logging Channels"]["Manual XP Channel"]
     if channel_id is None:
         return
     
