@@ -1,1 +1,30 @@
-{"Calculation": {"Message XP": true, "Cooldown Seconds": 7, "Minimum XP": 1, "Maximum XP": 44, "Next Level Formula": "Default (not editable currently)"}, "Denylist": {"Denied Channels": [1455410124700258314], "Denied Roles": [], "Denied Users": [282859044593598464]}, "Leaderboards": {"Yearly": false, "Monthly": false, "Weekly": false, "Daily": true, "Start Week On Monday": false}, "Level Roles": {}, "Level Up Messages": {"Level Up Channel": 959566471539863625, "Level Up Message": "### {user} climbed to level {level}\nKeep it up and you *might* make it to a Nest (real)\n\n:tada: :tada: :tada: :tada:"}, "Rank Cards": {"XP Bar Color": "Blue"}, "Logging Channels": {"Manual XP Channel": 959566471539863625}}
+{
+    "Calculation": {
+        "Message XP": true,
+        "Cooldown Seconds": 10,
+        "Minimum XP": 1,
+        "Maximum XP": 50,
+        "Next Level Formula": "Default (not editable currently)"
+    },
+    "Denylist": {
+        "Denied Channels": [],
+        "Denied Roles": [],
+        "Denied Users": []
+    },
+    "Leaderboards": {
+        "Yearly": false,
+        "Monthly": false,
+        "Weekly": false,
+        "Daily": false,
+        "Start Week On Monday": false
+    },
+    "Level Roles": {},
+    "Level Up Messages": {
+        "Level Up Channel": null,
+        "Level Up Message": null
+    },
+    "Rank Cards": {
+        "XP Bar Color": "Blue"
+    },
+    "Logging Channels": {}
+}
