@@ -364,7 +364,7 @@ class CheckInputModal(miru.Modal):
     setting: str
     value: str | int
 
-    def __init__(self, ctx: miru.ViewContext, category: str, data: tuple[str, str | int], tied_menu: menu.Menu | None = None, *args, **kwargs) -> None:
+    def __init__(self, ctx: miru.ViewContext, category: str, data: tuple[str, str | int], style=hikari.TextInputStyle.SHORT, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.original_ctx = ctx
         self.category = category
@@ -373,14 +373,12 @@ class CheckInputModal(miru.Modal):
             label=self.setting,
             value=str(self.value),
             required=True,
-            style = hikari.TextInputStyle.PARAGRAPH if isinstance(self.value, str) else hikari.TextInputStyle.SHORT
+            style=style
         ))
 
     async def modal_check(self, ctx: miru.ModalContext) -> bool:
         input_str = ctx.values[self.get_item_by(lambda x: isinstance(x, miru.TextInput))]
         match self.value:
-            case str():
-                return True
             case int():
                 return input_str.isdigit()
             case _:
@@ -389,10 +387,10 @@ class CheckInputModal(miru.Modal):
     async def callback(self, ctx: miru.ModalContext) -> None:
         input_str = ctx.values[self.get_item_by(lambda x: isinstance(x, miru.TextInput))]
         match self.value:
-            case str():
-                set_setting(self.category, self.setting, input_str)
             case int():
                 set_setting(self.category, self.setting, int(input_str))
+            case _:
+                set_setting(self.category, self.setting, input_str)
         self.stop()
 
 
@@ -639,8 +637,17 @@ class SettingCategoryScreen(OriginalMiruCtxScreen):
                 await self.menu.push(RoleOptionScreen(self.menu, self.category, setting_tuple))
             case "Rank Cards":
                 await self.menu.push(StrOptionScreen(self.menu, self.category, setting_tuple))
-            case "Level Up Message" | "Cooldown Seconds" | "Minimum XP" | "Maximum XP":
-                modal = CheckInputModal(ctx, self.category, setting_tuple, self.menu, title=f"Modify {setting}")
+            case "Cooldown Seconds" | "Minimum XP" | "Maximum XP":
+                modal = CheckInputModal(ctx, self.category, setting_tuple, title=f"Modify {setting}")
+                await ctx.respond_with_modal(modal)
+                await modal.wait()
+                if modal.last_context is not None:
+                    await modal.last_context.defer()
+                else:
+                    modal.stop()
+                await self.menu.push(make_setting_option_screen(self.category, self.menu, self.original_ctx))
+            case "Level Up Message":
+                modal = CheckInputModal(ctx, self.category, setting_tuple, style=hikari.TextInputStyle.PARAGRAPH, title=f"Modify {setting}")
                 await ctx.respond_with_modal(modal)
                 await modal.wait()
                 if modal.last_context is not None:
@@ -1194,7 +1201,7 @@ class LeaderboardCommand:
                 ])
             ).set_footer(timestamp)
             for page in range(1, max_pages + 1)
-        ])
+        ], timeout=timedelta(minutes=15))
 
         miru_client = ctx.client.model.miru_client
         assert isinstance(miru_client, miru.Client)
@@ -1381,11 +1388,12 @@ async def reset_guild_xp(ctx: crescent.Context) -> None:
 @plugin.include
 @crescent.command(
     name="settings",
-    description="view & edit bot settings"
+    description="view & edit bot settings",
+    default_member_permissions=hikari.Permissions.MANAGE_GUILD
 )
 async def view_settings(ctx: crescent.Context) -> None:
     miru_client = ctx.client.model.miru_client
-    settings_menu = menu.Menu()
+    settings_menu = menu.Menu(timeout=timedelta(minutes=15))
     builder = await settings_menu.build_response_async(miru_client, SettingsScreen(settings_menu))
     await ctx.respond_with_builder(builder)
     miru_client.start_view(settings_menu)
