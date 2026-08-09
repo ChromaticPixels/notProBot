@@ -160,7 +160,7 @@ async def make_rank_card(u_id, xp: int, lvl: int, app: hikari.RESTAware) -> str:
     # consider making these external constants
     style = ("░", "▒", "▓", "█")
     non_empty_states = len(style) - 1
-    length = 36
+    length = settings["Rank Cards"]["XP Bar Length"]
     total_divisions = non_empty_states * length
     xp_bar_color_str = f"{settings['Rank Cards']['XP Bar Color']} Text"
 
@@ -637,7 +637,7 @@ class SettingCategoryScreen(OriginalMiruCtxScreen):
                 await self.menu.push(RoleOptionScreen(self.menu, self.category, setting_tuple))
             case "Rank Cards":
                 await self.menu.push(StrOptionScreen(self.menu, self.category, setting_tuple))
-            case "Cooldown Seconds" | "Minimum XP" | "Maximum XP":
+            case "Cooldown Seconds" | "Minimum XP" | "Maximum XP" | "XP Bar Length":
                 modal = CheckInputModal(ctx, self.category, setting_tuple, title=f"Modify {setting}")
                 await ctx.respond_with_modal(modal)
                 await modal.wait()
@@ -676,7 +676,7 @@ class DenylistScreen(SettingCategoryScreen):
                 description="\n".join([
                     *[
                         f"- **{setting}**: {value}"
-                        for setting, value in dict(list(denylist_settings.items())[:-3])
+                        for setting, value in dict(list(denylist_settings.items())[:-3]).items()
                     ],
                     f"- Denied Channels: {', '.join([
                         f'https://discord.com/channels/{GUILD_ID}/{channel}'
@@ -741,7 +741,7 @@ class LevelUpMessageScreen(SettingCategoryScreen):
                 description="\n".join([
                     *[
                         f"- **{setting}**: {value}"
-                        for setting, value in dict(list(level_up_settings.items())[:-2])
+                        for setting, value in dict(list(level_up_settings.items())[:-2]).items()
                     ],
                     f"- **Channel**: {f'https://discord.com/channels/{GUILD_ID}/{channel}' or None}",
                     f"- **Message**: {
@@ -766,9 +766,9 @@ class RankCardScreen(SettingCategoryScreen):
                 description="\n".join([
                     *[
                         f"- **{setting}**: {value}"
-                        for setting, value in dict(list(rank_card_settings.items())[:-1])
+                        for setting, value in dict(list(rank_card_settings.items())[:-1]).items()
                     ],
-                    f"**XP Bar Color**: ```ansi\n{make_ansi(
+                    f"- **XP Bar Color**:\n```ansi\n{make_ansi(
                         xp_bar_color, [f'{xp_bar_color} Text', 'Bold']
                     )}```"
                 ])

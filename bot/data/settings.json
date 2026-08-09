@@ -24,6 +24,7 @@
         "Level Up Message": null
     },
     "Rank Cards": {
+        "XP Bar Length": 36,
         "XP Bar Color": "Blue"
     },
     "Logging Channels": {}
