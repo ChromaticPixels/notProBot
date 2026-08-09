@@ -27,5 +27,7 @@
         "XP Bar Length": 36,
         "XP Bar Color": "Blue"
     },
-    "Logging Channels": {}
+    "Logging Channels": {
+        "Manual XP Channel": null
+    }
 }
