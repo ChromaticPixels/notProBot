@@ -743,7 +743,10 @@ class LevelUpMessageScreen(SettingCategoryScreen):
                         f"- **{setting}**: {value}"
                         for setting, value in dict(list(level_up_settings.items())[:-2]).items()
                     ],
-                    f"- **Channel**: {f'https://discord.com/channels/{GUILD_ID}/{channel}' or None}",
+                    f"- **Channel**: {
+                        f'https://discord.com/channels/{GUILD_ID}/{channel}'
+                        if channel is not None else 'None'
+                    }",
                     f"- **Message**: {
                         f'\n{message.format_map(locals())}'
                         if message is not None else 'Default'
