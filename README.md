@@ -5,3 +5,5 @@ source venv/bin/activate # (check venvs docs for your os as needed)
 pip install -r requirements.txt
 python -m bot
 ```
+
+more details eventually
